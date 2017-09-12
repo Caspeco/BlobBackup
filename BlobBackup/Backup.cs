@@ -131,6 +131,15 @@ namespace BlobBackup
                             await item.DownloadToFileAsync(localFileName, FileMode.Create);
                             Console.Write(".");
                         }
+                        catch(StorageException ex)
+                        {
+                            // Swallow 404 exceptions.
+                            // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
+                            if(!ex.Message.Contains("404"))
+                            {
+                                throw;
+                            }
+                        }
                         finally
                         {
                             throttler.Release();
