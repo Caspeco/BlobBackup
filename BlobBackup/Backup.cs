@@ -60,47 +60,54 @@ namespace BlobBackup
 
                 foreach (IListBlobItem blobItem in container.ListBlobs(null, true, BlobListingDetails.None))
                 {
-                    job.ScannedItems++;
-                    if (job.ScannedItems % 50000 == 0)
+                    try
                     {
-                        progress.Report(job.ScannedItems);
-                    }
-
-                    if (blobItem is CloudBlockBlob)
-                    {
-                        var localFileName = GetLocalFileName(_localPath, blobItem.Uri);
-                        allRemoteFiles.Add(localFileName);
-                        CloudBlockBlob blob = blobItem as CloudBlockBlob;
-
-                        var file = new FileInfo(localFileName);
-
-                        if (file.Exists)
+                        job.ScannedItems++;
+                        if (job.ScannedItems % 50000 == 0)
                         {
-                            if (file.LastWriteTime < blob.Properties.LastModified || file.Length != blob.Properties.Length)
+                            progress.Report(job.ScannedItems);
+                        }
+
+                        if (blobItem is CloudBlockBlob)
+                        {
+                            var localFileName = GetLocalFileName(_localPath, blobItem.Uri);
+                            allRemoteFiles.Add(localFileName);
+                            CloudBlockBlob blob = blobItem as CloudBlockBlob;
+
+                            var file = new FileInfo(localFileName);
+
+                            if (file.Exists)
                             {
-                                job.ModifiedFiles.Add(blob);
-                                job.ModifiedFilesSize += blob.Properties.Length;
+                                if (file.LastWriteTime < blob.Properties.LastModified || file.Length != blob.Properties.Length)
+                                {
+                                    job.ModifiedFiles.Add(blob);
+                                    job.ModifiedFilesSize += blob.Properties.Length;
+                                }
+                                else
+                                {
+                                    job.UpToDateItems++;
+                                }
                             }
                             else
                             {
-                                job.UpToDateItems++;
+                                job.NewFiles.Add(blob);
+                                job.NewFilesSize += blob.Properties.Length;
                             }
                         }
                         else
                         {
-                            job.NewFiles.Add(blob);
-                            job.NewFilesSize += blob.Properties.Length;
+                            job.IgnoredItems++;
                         }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        job.IgnoredItems++;
+                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {containerName}. Item: {blobItem.Uri} Scanned Items: #{job.ScannedItems}. Ex message:" + ex.Message);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"EXCEPTION ({containerName}) #{job.ScannedItems}: " + ex.Message);
+                Console.WriteLine($"OUTER EXCEPTION ({containerName}) #{job.ScannedItems}: " + ex.Message);
             }
 
             // scan for deleted files by checking if we have a file in the local file system that we did not find remotely
