@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace BlobBackup
 {
-    class Program
+    public class Program
     {
         // todo:
         // Logga till en fil så att vi kan se hur det gick

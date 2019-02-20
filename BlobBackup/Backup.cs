@@ -1,5 +1,4 @@
-﻿using Brotli;
-using Microsoft.WindowsAzure.Storage;
+﻿using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 using System;
 using System.Collections.Generic;
@@ -11,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace BlobBackup
 {
-    class Backup
+    internal class Backup
     {
         private string _localPath;
 
@@ -19,24 +18,6 @@ namespace BlobBackup
         {
             _localPath = localPath;
         }
-
-        // TODO use compression?
-        //static public Byte[] BrotliEncode(Byte[] input)
-        //{
-        //    Byte[] output = null;
-        //    using (System.IO.MemoryStream msInput = new System.IO.MemoryStream(input))
-        //    using (System.IO.MemoryStream msOutput = new System.IO.MemoryStream())
-        //    using (BrotliStream bs = new BrotliStream(msOutput, System.IO.Compression.CompressionMode.Compress))
-        //    {
-        //        bs.SetQuality(11);
-
-        //        bs.SetWindow(24);
-        //        msInput.CopyTo(bs);
-        //        bs.Close();
-        //        output = msOutput.ToArray();
-        //        return output;
-        //    }
-        //}
 
         private string GetLocalFileName(string localPath, Uri uri)
         {
