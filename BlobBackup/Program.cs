@@ -58,11 +58,11 @@ namespace BlobBackup
             Console.WriteLine($"{job.NewFiles.Count} new files. Total size {FormatSize(job.NewFilesSize)}.");
             Console.WriteLine($"{job.ModifiedFiles.Count} modified files. Total size {FormatSize(job.ModifiedFilesSize)}.");
             Console.WriteLine($"{job.UpToDateItems} files up to date.");
-            Console.WriteLine($"{job.DeletedFiles.Count} files deleted.");
             Console.WriteLine($"{job.IgnoredItems} ignored items.");
-            Console.WriteLine("Downloading...");
+            Console.WriteLine("Processing...");
 
             await backup.ProcessJob(job, options.Parallel);
+            Console.WriteLine($"{job.DeletedFiles.Count} files deleted.");
 
             sw.Stop();
             Console.WriteLine();
