@@ -33,7 +33,12 @@ namespace BlobBackup
             return String.Format("{0:0.##} {1}", size, sizes[order]);
         }
 
-        static void Main(string[] args)
+        public static int Main(string[] args)
+        {
+            return MainAsync(args).GetAwaiter().GetResult();
+        }
+
+        public static async Task<int> MainAsync(string[] args)
         {
             var options = new CommandOptions();
 
@@ -57,12 +62,13 @@ namespace BlobBackup
             Console.WriteLine($"{job.IgnoredItems} ignored items.");
             Console.WriteLine("Downloading...");
 
-            backup.ProcessJob(job, options.Parallel).Wait();
+            await backup.ProcessJob(job, options.Parallel);
 
             sw.Stop();
             Console.WriteLine();
             Console.WriteLine($"Done in {sw.Elapsed.ToString()}.");
-            //Console.ReadKey();
+            if (Debugger.IsAttached) Console.ReadKey();
+            return 0;
         }
     }
 }
