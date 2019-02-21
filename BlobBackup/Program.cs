@@ -66,7 +66,7 @@ namespace BlobBackup
 
             await processTask;
             Console.WriteLine();
-            Console.WriteLine($"{job.DeletedFiles.Count} files deleted.");
+            Console.WriteLine($"{job.DeletedItems} files deleted.");
 
             sw.Stop();
             Console.WriteLine();

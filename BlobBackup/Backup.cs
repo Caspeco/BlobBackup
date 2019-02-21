@@ -19,7 +19,7 @@ namespace BlobBackup
         public int UpToDateItems = 0;
         public readonly List<BlobJob> NewFiles = new List<BlobJob>();
         public readonly List<BlobJob> ModifiedFiles = new List<BlobJob>();
-        public readonly List<string> DeletedFiles = new List<string>();
+        public int DeletedItems = 0;
         public long NewFilesSize => NewFiles.Sum(b => b.Blob.Size);
         public long ModifiedFilesSize => ModifiedFiles.Sum(b => b.Blob.Size);
 
@@ -37,12 +37,6 @@ namespace BlobBackup
         private const string FLAG_DELETED = "[DELETED ";
         private const string FLAG_DATEFORMAT = "yyyyMMddHmm";
         private const string FLAG_END = "]";
-
-        private string GetLocalFileName(Uri uri)
-        {
-            var fileName = uri.AbsolutePath.Replace("//", "/").Replace(@"/", @"\").Replace(":", "--COLON--").Substring(1);
-            return Path.Combine(_localPath, fileName);
-        }
 
         public Backup PrepareJob(string accountName, string accountKey, IProgress<int> progress)
         {
@@ -67,17 +61,19 @@ namespace BlobBackup
                             continue;
                         }
 
-                        var bJob = new BlobJob(blob, GetLocalFileName(blob.Uri));
-                        ExpectedLocalFiles.Add(bJob.LocalFileName);
+                        var bJob = new BlobJob(blob, Path.Combine(_localPath, blob.GetLocalFileName()));
+                        ExpectedLocalFiles.Add(bJob.LocalFilePath);
 
-                        ILocalFileInfo file = new LocalFileInfoDisk(bJob.LocalFileName);
+                        ILocalFileInfo file = new LocalFileInfoDisk(bJob.LocalFilePath);
+                        bJob.FileInfo = file;
                         if (!file.Exists)
                         {
                             bJob.NeedsJob = JobType.New;
                             BlobJobQueue.AddDone(bJob);
                             NewFiles.Add(bJob);
                         }
-                        else if (file.LastWriteTimeUtc < blob.LastModifiedUtc.UtcDateTime || file.Size != blob.Size)
+                        else if (file.Size != blob.Size || file.LastWriteTimeUtc < blob.LastModifiedUtc.UtcDateTime ||
+                            (file.MD5 != null && !string.IsNullOrEmpty(blob.MD5) && file.MD5 != blob.MD5))
                         {
                             bJob.NeedsJob = JobType.Modified;
                             BlobJobQueue.AddDone(bJob);
@@ -102,7 +98,7 @@ namespace BlobBackup
 
             Tasks.Add(Task.Run(() =>
             {
-                // scan for deleted files by checking if we have a file in the local file system that we did not find remotely
+                // scan for deleted files by checking if we have a file locally that we did not find remotely
                 foreach (var fileName in Directory.GetFiles(localContainerPath, "*", SearchOption.AllDirectories))
                 {
                     if (fileName.Contains(FLAG_MODIFIED) || fileName.Contains(FLAG_DELETED))
@@ -110,8 +106,9 @@ namespace BlobBackup
                     if (!ExpectedLocalFiles.Contains(fileName))
                     {
                         Console.Write("D");
-                        File.Move(fileName, fileName + FLAG_DELETED + DateTime.Now.ToString(FLAG_DATEFORMAT) + FLAG_END);
-                        DeletedFiles.Add(fileName);
+                        var nowUtc = DateTime.UtcNow;
+                        File.Move(fileName, fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                        DeletedItems++;
                     }
                     ExpectedLocalFiles.Remove(fileName);
                 }
@@ -145,14 +142,15 @@ namespace BlobBackup
         public class BlobJob
         {
             internal readonly BlobItem Blob;
-            internal readonly string LocalFileName;
+            internal readonly string LocalFilePath;
+            internal ILocalFileInfo FileInfo;
             internal JobType NeedsJob = JobType.None;
             internal Action JobFinally;
 
-            public BlobJob(BlobItem blob, string localFileName)
+            public BlobJob(BlobItem blob, string localFilePath)
             {
                 Blob = blob;
-                LocalFileName = localFileName;
+                LocalFilePath = localFilePath;
             }
 
             public async Task<bool> DoJob()
@@ -162,20 +160,29 @@ namespace BlobBackup
                     if (NeedsJob == JobType.New)
                     {
                         Console.Write("N");
-                        Directory.CreateDirectory(Path.GetDirectoryName(LocalFileName));
+                        Directory.CreateDirectory(Path.GetDirectoryName(LocalFilePath));
                     }
                     else if (NeedsJob == JobType.Modified)
                     {
+                        if (FileInfo.Size == Blob.Size &&
+                            (FileInfo.MD5 != null && !string.IsNullOrEmpty(Blob.MD5) && FileInfo.MD5 == Blob.MD5))
+                        {
+                            // since size and hash is the same as last, we just ignore this and don't update
+                            return true;
+                        }
                         Console.Write("m");
-                        File.Move(LocalFileName, LocalFileName + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                        File.Move(LocalFilePath, LocalFilePath + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                     }
                     else
                     {
                         return true;
                     }
 
-                    await Blob.DownloadToFileAsync(LocalFileName, FileMode.Create);
-                    File.SetLastWriteTimeUtc(LocalFileName, Blob.LastModifiedUtc.UtcDateTime);
+                    await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
+                    var lfi = new LocalFileInfoDisk(LocalFilePath);
+                    if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
+                        File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
+
                     NeedsJob = JobType.None;
                     return true;
                 }
@@ -183,11 +190,11 @@ namespace BlobBackup
                 {
                     // Swallow 404 exceptions.
                     // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
-                    Console.Write("Swallowed Ex: " + LocalFileName + " " + ex.GetType().Name + " " + ex.Message);
+                    Console.Write("Swallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
                 }
                 catch (System.IO.IOException ex)
                 {
-                    Console.Write("Swallowed Ex: " + LocalFileName + " " + ex.GetType().Name + " " + ex.Message);
+                    Console.Write("Swallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
                 }
                 finally
                 {

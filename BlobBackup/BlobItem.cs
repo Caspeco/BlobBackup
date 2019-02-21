@@ -27,6 +27,16 @@ namespace BlobBackup
             DownloadToFileAsync = Blob.DownloadToFileAsync;
         }
 
+        public string GetLocalFileName()
+        {
+            return Uri.AbsolutePath.Replace("//", "/").Replace('/', '\\').Replace(":", "--COLON--").Substring(1);
+        }
+
+        public override string ToString()
+        {
+            return string.Join("|", Uri.AbsolutePath, Size, LastModifiedUtc, MD5);
+        }
+
         private static BlobItem GetBlobItem(IListBlobItem blobItem)
         {
             var blob = blobItem as CloudBlockBlob;

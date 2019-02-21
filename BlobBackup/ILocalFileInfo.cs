@@ -10,6 +10,7 @@ namespace BlobBackup
     {
         bool Exists { get; }
         long Size { get; }
+        string MD5 { get; }
         DateTime LastWriteTimeUtc { get; }
     }
 
@@ -19,11 +20,23 @@ namespace BlobBackup
 
         public bool Exists => fInfo.Exists;
         public long Size => fInfo.Length;
+        private string _md5;
+        public string MD5 => _md5;
         public DateTime LastWriteTimeUtc => fInfo.LastWriteTimeUtc;
 
         public LocalFileInfoDisk(string fileName)
         {
             fInfo = new System.IO.FileInfo(fileName);
+        }
+
+        public string CalculateMd5()
+        {
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+            using (var stream = fInfo.OpenRead())
+            {
+                _md5 = Convert.ToBase64String(md5.ComputeHash(stream));
+            }
+            return _md5;
         }
     }
 }
