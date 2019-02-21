@@ -13,7 +13,8 @@ namespace BlobBackup
         private readonly CloudBlockBlob Blob;
         public readonly Uri Uri;
         public readonly long Size;
-        public readonly DateTimeOffset? LastModified;
+        public readonly string MD5;
+        public readonly DateTimeOffset LastModified;
         internal Func<string, System.IO.FileMode, Task> DownloadToFileAsync;
 
         private BlobItem(CloudBlockBlob blob)
@@ -21,7 +22,8 @@ namespace BlobBackup
             Blob = blob;
             Uri = blob.Uri;
             Size = blob.Properties.Length;
-            LastModified = blob.Properties.LastModified;
+            MD5 = blob.Properties.ContentMD5;
+            LastModified = blob.Properties.LastModified ?? DateTimeOffset.MinValue;
             DownloadToFileAsync = Blob.DownloadToFileAsync;
         }
 

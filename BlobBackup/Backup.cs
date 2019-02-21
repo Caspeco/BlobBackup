@@ -49,7 +49,7 @@ namespace BlobBackup
                     ScannedItems++;
                     try
                     {
-                        if (ScannedItems % 50000 == 0)
+                        if (ScannedItems % 10000 == 0)
                         {
                             progress.Report(ScannedItems);
                         }
@@ -163,7 +163,7 @@ namespace BlobBackup
                     else if (NeedsJob == JobType.Modified)
                     {
                         Console.Write("m");
-                        File.Move(LocalFileName, LocalFileName + $"[MODIFIED {Blob.LastModified.Value.ToString("yyyyMMddHmm")}]");
+                        File.Move(LocalFileName, LocalFileName + $"[MODIFIED {Blob.LastModified.ToString("yyyyMMddHmm")}]");
                     }
                     else
                     {
@@ -171,6 +171,7 @@ namespace BlobBackup
                     }
 
                     await Blob.DownloadToFileAsync(LocalFileName, FileMode.Create);
+                    File.SetLastWriteTimeUtc(LocalFileName, Blob.LastModified.UtcDateTime);
                     NeedsJob = JobType.None;
                 }
                 catch (StorageException ex)
