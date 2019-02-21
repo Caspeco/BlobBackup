@@ -47,12 +47,12 @@ namespace BlobBackup
                 Environment.Exit(CommandLine.Parser.DefaultExitCodeFail);
             }
 
-            var job = new Backup(options.BackupPath);
+            var job = new Backup(options.BackupPath, options.ContainerName);
 
             Console.WriteLine("Scanning and processing remote items ");
             var sw = Stopwatch.StartNew();
 
-            var prepTask = Task.Run(() => job.PrepareJob(options.ContainerName, options.AccountName, options.AccountKey, new Progress<int>(v => { Console.Write("."); })));
+            var prepTask = Task.Run(() => job.PrepareJob(options.AccountName, options.AccountKey, new Progress<int>(v => { Console.Write("."); })));
             job.Tasks.Add(prepTask);
             var processTask = job.ProcessJob(options.Parallel);
             await prepTask;

@@ -11,7 +11,8 @@ namespace BlobBackup
 {
     internal class Backup
     {
-        private string _localPath;
+        private readonly string _localPath;
+        private readonly string _containerName;
 
         public int ScannedItems = 0;
         public int IgnoredItems = 0;
@@ -26,9 +27,10 @@ namespace BlobBackup
         private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
         internal List<Task> Tasks = new List<Task>();
 
-        public Backup(string localPath)
+        public Backup(string localPath, string containerName)
         {
             _localPath = localPath;
+            _containerName = containerName;
         }
 
         private const string FLAG_MODIFIED = "[MODIFIED ";
@@ -42,14 +44,14 @@ namespace BlobBackup
             return Path.Combine(_localPath, fileName);
         }
 
-        public Backup PrepareJob(string containerName, string accountName, string accountKey, IProgress<int> progress)
+        public Backup PrepareJob(string accountName, string accountKey, IProgress<int> progress)
         {
-            var localContainerPath = Path.Combine(_localPath, containerName);
+            var localContainerPath = Path.Combine(_localPath, _containerName);
             Directory.CreateDirectory(localContainerPath);
 
             try
             {
-                foreach (var blob in BlobItem.BlobEnumerator(containerName, accountName, accountKey))
+                foreach (var blob in BlobItem.BlobEnumerator(_containerName, accountName, accountKey))
                 {
                     ScannedItems++;
                     try
@@ -92,13 +94,13 @@ namespace BlobBackup
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {containerName}. Item: {blob.Uri} Scanned Items: #{ScannedItems}. Ex message:" + ex.Message);
+                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{ScannedItems}. Ex message:" + ex.Message);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"OUTER EXCEPTION ({containerName}) #{ScannedItems}: " + ex.Message);
+                Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{ScannedItems}: " + ex.Message);
             }
             BlobJobQueue.RunnerDone();
 
