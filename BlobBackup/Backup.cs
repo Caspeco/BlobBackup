@@ -22,8 +22,8 @@ namespace BlobBackup
         public long NewFilesSize => NewFiles.Sum(b => b.Blob.Size);
         public long ModifiedFilesSize => ModifiedFiles.Sum(b => b.Blob.Size);
 
-        internal HashSet<string> AllRemoteFiles = new HashSet<string>();
-        internal RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
+        private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
+        private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
         internal List<Task> Tasks = new List<Task>();
 
         public Backup(string localPath)
@@ -33,11 +33,13 @@ namespace BlobBackup
 
         private const string FLAG_MODIFIED = "[MODIFIED ";
         private const string FLAG_DELETED = "[DELETED ";
+        private const string FLAG_DATEFORMAT = "yyyyMMddHmm";
+        private const string FLAG_END = "]";
 
-        private string GetLocalFileName(string localPath, Uri uri)
+        private string GetLocalFileName(Uri uri)
         {
             var fileName = uri.AbsolutePath.Replace("//", "/").Replace(@"/", @"\").Replace(":", "--COLON--").Substring(1);
-            return Path.Combine(localPath, fileName);
+            return Path.Combine(_localPath, fileName);
         }
 
         public Backup PrepareJob(string containerName, string accountName, string accountKey, IProgress<int> progress)
@@ -63,8 +65,8 @@ namespace BlobBackup
                             continue;
                         }
 
-                        var bJob = new BlobJob(blob, GetLocalFileName(_localPath, blob.Uri));
-                        AllRemoteFiles.Add(bJob.LocalFileName);
+                        var bJob = new BlobJob(blob, GetLocalFileName(blob.Uri));
+                        ExpectedLocalFiles.Add(bJob.LocalFileName);
 
                         var file = new FileInfo(bJob.LocalFileName);
 
@@ -107,12 +109,13 @@ namespace BlobBackup
                 {
                     if (fileName.Contains(FLAG_MODIFIED) || fileName.Contains(FLAG_DELETED))
                         continue;
-                    if (!AllRemoteFiles.Contains(fileName))
+                    if (!ExpectedLocalFiles.Contains(fileName))
                     {
                         Console.Write("D");
-                        File.Move(fileName, fileName + FLAG_DELETED + $"{DateTime.Now.ToString("yyyyMMddHmm")}]");
+                        File.Move(fileName, fileName + FLAG_DELETED + DateTime.Now.ToString(FLAG_DATEFORMAT) + FLAG_END);
                         DeletedFiles.Add(fileName);
                     }
+                    ExpectedLocalFiles.Remove(fileName);
                 }
             }));
 
@@ -166,7 +169,7 @@ namespace BlobBackup
                     else if (NeedsJob == JobType.Modified)
                     {
                         Console.Write("m");
-                        File.Move(LocalFileName, LocalFileName + FLAG_MODIFIED + $"{Blob.LastModified.ToString("yyyyMMddHmm")}]");
+                        File.Move(LocalFileName, LocalFileName + FLAG_MODIFIED + Blob.LastModified.ToString(FLAG_DATEFORMAT) + FLAG_END);
                     }
                     else
                     {
@@ -181,7 +184,11 @@ namespace BlobBackup
                 {
                     // Swallow 404 exceptions.
                     // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
-                    Console.Write("Swallowed Ex: " + ex.Message);
+                    Console.Write("Swallowed Ex: " + LocalFileName + " " + ex.GetType().Name + " " + ex.Message);
+                }
+                catch (System.IO.IOException ex)
+                {
+                    Console.Write("Swallowed Ex: " + LocalFileName + " " + ex.GetType().Name + " " + ex.Message);
                 }
                 finally
                 {
