@@ -31,6 +31,9 @@ namespace BlobBackup
             _localPath = localPath;
         }
 
+        private const string FLAG_MODIFIED = "[MODIFIED ";
+        private const string FLAG_DELETED = "[DELETED ";
+
         private string GetLocalFileName(string localPath, Uri uri)
         {
             var fileName = uri.AbsolutePath.Replace("//", "/").Replace(@"/", @"\").Replace(":", "--COLON--").Substring(1);
@@ -102,12 +105,12 @@ namespace BlobBackup
                 // scan for deleted files by checking if we have a file in the local file system that we did not find remotely
                 foreach (var fileName in Directory.GetFiles(localContainerPath, "*", SearchOption.AllDirectories))
                 {
-                    if (!fileName.Contains("[MODIFIED ") && !fileName.Contains("[DELETED "))
+                    if (fileName.Contains(FLAG_MODIFIED) || fileName.Contains(FLAG_DELETED))
                         continue;
                     if (!AllRemoteFiles.Contains(fileName))
                     {
                         Console.Write("D");
-                        File.Move(fileName, fileName + $"[DELETED {DateTime.Now.ToString("yyyyMMddHmm")}]");
+                        File.Move(fileName, fileName + FLAG_DELETED + $"{DateTime.Now.ToString("yyyyMMddHmm")}]");
                         DeletedFiles.Add(fileName);
                     }
                 }
@@ -163,7 +166,7 @@ namespace BlobBackup
                     else if (NeedsJob == JobType.Modified)
                     {
                         Console.Write("m");
-                        File.Move(LocalFileName, LocalFileName + $"[MODIFIED {Blob.LastModified.ToString("yyyyMMddHmm")}]");
+                        File.Move(LocalFileName, LocalFileName + FLAG_MODIFIED + $"{Blob.LastModified.ToString("yyyyMMddHmm")}]");
                     }
                     else
                     {
