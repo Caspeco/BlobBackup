@@ -70,26 +70,22 @@ namespace BlobBackup
                         var bJob = new BlobJob(blob, GetLocalFileName(blob.Uri));
                         ExpectedLocalFiles.Add(bJob.LocalFileName);
 
-                        var file = new FileInfo(bJob.LocalFileName);
-
-                        if (file.Exists)
-                        {
-                            if (file.LastWriteTimeUtc < blob.LastModifiedUtc.UtcDateTime || file.Length != blob.Size)
-                            {
-                                bJob.NeedsJob = JobType.Modified;
-                                BlobJobQueue.AddDone(bJob);
-                                ModifiedFiles.Add(bJob);
-                            }
-                            else
-                            {
-                                UpToDateItems++;
-                            }
-                        }
-                        else
+                        ILocalFileInfo file = new LocalFileInfoDisk(bJob.LocalFileName);
+                        if (!file.Exists)
                         {
                             bJob.NeedsJob = JobType.New;
                             BlobJobQueue.AddDone(bJob);
                             NewFiles.Add(bJob);
+                        }
+                        else if (file.LastWriteTimeUtc < blob.LastModifiedUtc.UtcDateTime || file.Size != blob.Size)
+                        {
+                            bJob.NeedsJob = JobType.Modified;
+                            BlobJobQueue.AddDone(bJob);
+                            ModifiedFiles.Add(bJob);
+                        }
+                        else
+                        {
+                            UpToDateItems++;
                         }
                     }
                     catch (Exception ex)

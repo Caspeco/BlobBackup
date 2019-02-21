@@ -75,6 +75,7 @@
     <Compile Include="Backup.cs" />
     <Compile Include="BlobItem.cs" />
     <Compile Include="CommandOptions.cs" />
+    <Compile Include="ILocalFileInfo.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RunQueue.cs" />
