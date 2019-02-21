@@ -74,7 +74,7 @@ namespace BlobBackup
 
                         if (file.Exists)
                         {
-                            if (file.LastWriteTime < blob.LastModified || file.Length != blob.Size)
+                            if (file.LastWriteTimeUtc < blob.LastModifiedUtc.UtcDateTime || file.Length != blob.Size)
                             {
                                 bJob.NeedsJob = JobType.Modified;
                                 BlobJobQueue.AddDone(bJob);
@@ -171,7 +171,7 @@ namespace BlobBackup
                     else if (NeedsJob == JobType.Modified)
                     {
                         Console.Write("m");
-                        File.Move(LocalFileName, LocalFileName + FLAG_MODIFIED + Blob.LastModified.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                        File.Move(LocalFileName, LocalFileName + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                     }
                     else
                     {
@@ -179,7 +179,7 @@ namespace BlobBackup
                     }
 
                     await Blob.DownloadToFileAsync(LocalFileName, FileMode.Create);
-                    File.SetLastWriteTimeUtc(LocalFileName, Blob.LastModified.UtcDateTime);
+                    File.SetLastWriteTimeUtc(LocalFileName, Blob.LastModifiedUtc.UtcDateTime);
                     NeedsJob = JobType.None;
                     return true;
                 }
