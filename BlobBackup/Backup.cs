@@ -23,7 +23,7 @@ namespace BlobBackup
         public long ModifiedFilesSize => ModifiedFiles.Sum(b => b.Blob.Size);
 
         internal HashSet<string> AllRemoteFiles = new HashSet<string>();
-        internal List<BlobJob> AllJobs = new List<BlobJob>();
+        internal RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
         internal List<Task> Tasks = new List<Task>();
 
         public Backup(string localPath)
@@ -70,7 +70,7 @@ namespace BlobBackup
                             if (file.LastWriteTime < blob.LastModified || file.Length != blob.Size)
                             {
                                 bJob.NeedsJob = JobType.Modified;
-                                AllJobs.Add(bJob);
+                                BlobJobQueue.AddDone(bJob);
                                 ModifiedFiles.Add(bJob);
                             }
                             else
@@ -81,7 +81,7 @@ namespace BlobBackup
                         else
                         {
                             bJob.NeedsJob = JobType.New;
-                            AllJobs.Add(bJob);
+                            BlobJobQueue.AddDone(bJob);
                             NewFiles.Add(bJob);
                         }
                     }
@@ -95,6 +95,7 @@ namespace BlobBackup
             {
                 Console.WriteLine($"OUTER EXCEPTION ({containerName}) #{ScannedItems}: " + ex.Message);
             }
+            BlobJobQueue.RunnerDone();
 
             Tasks.Add(Task.Run(() =>
             {
@@ -118,22 +119,16 @@ namespace BlobBackup
         public async Task ProcessJob(int simultaniousDownloads)
         {
             var throttler = new SemaphoreSlim(initialCount: simultaniousDownloads);
+            void releaseThrottler() => throttler.Release();
 
-            if (AllJobs.Any())
+            foreach (var item in BlobJobQueue.GetDoneEnumerable())
             {
-                Console.Write($"Working on files {AllJobs.Count}: ");
-                void releaseThrottler() => throttler.Release();
-
-                foreach (var item in AllJobs)
-                {
-                    item.JobFinally = releaseThrottler;
-                    await throttler.WaitAsync();
-                    Tasks.Add(Task.Run(item.DoJob));
-                }
+                item.JobFinally = releaseThrottler;
+                await throttler.WaitAsync();
+                Tasks.Add(Task.Run(item.DoJob));
             }
 
             await Task.WhenAll(Tasks);
-            Console.WriteLine();
         }
 
         internal enum JobType

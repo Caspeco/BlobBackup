@@ -47,21 +47,25 @@ namespace BlobBackup
                 Environment.Exit(CommandLine.Parser.DefaultExitCodeFail);
             }
 
-            var backup = new Backup(options.BackupPath);
+            var job = new Backup(options.BackupPath);
 
-            Console.WriteLine("Scanning remote items...");
+            Console.WriteLine("Scanning and processing remote items ");
             var sw = Stopwatch.StartNew();
 
-            var job = backup.PrepareJob(options.ContainerName, options.AccountName, options.AccountKey, new Progress<int>(v => { Console.WriteLine("Processed: " + v); }));
+            var prepTask = Task.Run(() => job.PrepareJob(options.ContainerName, options.AccountName, options.AccountKey, new Progress<int>(v => { Console.Write("."); })));
+            job.Tasks.Add(prepTask);
+            var processTask = job.ProcessJob(options.Parallel);
+            await prepTask;
 
+            Console.WriteLine();
             Console.WriteLine($"Scanned {job.ScannedItems} remote items.");
             Console.WriteLine($"{job.NewFiles.Count} new files. Total size {FormatSize(job.NewFilesSize)}.");
             Console.WriteLine($"{job.ModifiedFiles.Count} modified files. Total size {FormatSize(job.ModifiedFilesSize)}.");
             Console.WriteLine($"{job.UpToDateItems} files up to date.");
             Console.WriteLine($"{job.IgnoredItems} ignored items.");
-            Console.WriteLine("Processing...");
 
-            await backup.ProcessJob(options.Parallel);
+            await processTask;
+            Console.WriteLine();
             Console.WriteLine($"{job.DeletedFiles.Count} files deleted.");
 
             sw.Stop();
