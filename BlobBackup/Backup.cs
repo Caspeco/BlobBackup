@@ -13,6 +13,19 @@ namespace BlobBackup
     {
         private string _localPath;
 
+        public int ScannedItems = 0;
+        public int IgnoredItems = 0;
+        public int UpToDateItems = 0;
+        public readonly List<BlobJob> NewFiles = new List<BlobJob>();
+        public readonly List<BlobJob> ModifiedFiles = new List<BlobJob>();
+        public readonly List<string> DeletedFiles = new List<string>();
+        public long NewFilesSize => NewFiles.Sum(b => b.Blob.Size);
+        public long ModifiedFilesSize => ModifiedFiles.Sum(b => b.Blob.Size);
+
+        internal HashSet<string> AllRemoteFiles = new HashSet<string>();
+        internal List<BlobJob> AllJobs = new List<BlobJob>();
+        internal List<Task> Tasks = new List<Task>();
+
         public Backup(string localPath)
         {
             _localPath = localPath;
@@ -24,33 +37,31 @@ namespace BlobBackup
             return Path.Combine(localPath, fileName);
         }
 
-        public BackupJob PrepareJob(string containerName, string accountName, string accountKey, IProgress<int> progress)
+        public Backup PrepareJob(string containerName, string accountName, string accountKey, IProgress<int> progress)
         {
             var localContainerPath = Path.Combine(_localPath, containerName);
             Directory.CreateDirectory(localContainerPath);
-
-            var job = new BackupJob();
 
             try
             {
                 foreach (var blob in BlobItem.BlobEnumerator(containerName, accountName, accountKey))
                 {
-                    job.ScannedItems++;
+                    ScannedItems++;
                     try
                     {
-                        if (job.ScannedItems % 50000 == 0)
+                        if (ScannedItems % 50000 == 0)
                         {
-                            progress.Report(job.ScannedItems);
+                            progress.Report(ScannedItems);
                         }
 
                         if (blob == null)
                         {
-                            job.IgnoredItems++;
+                            IgnoredItems++;
                             continue;
                         }
 
                         var bJob = new BlobJob(blob, GetLocalFileName(_localPath, blob.Uri));
-                        job.AllRemoteFiles.Add(bJob.LocalFileName);
+                        AllRemoteFiles.Add(bJob.LocalFileName);
 
                         var file = new FileInfo(bJob.LocalFileName);
 
@@ -59,69 +70,69 @@ namespace BlobBackup
                             if (file.LastWriteTime < blob.LastModified || file.Length != blob.Size)
                             {
                                 bJob.NeedsJob = JobType.Modified;
-                                job.AllJobs.Add(bJob);
-                                job.ModifiedFiles.Add(bJob);
+                                AllJobs.Add(bJob);
+                                ModifiedFiles.Add(bJob);
                             }
                             else
                             {
-                                job.UpToDateItems++;
+                                UpToDateItems++;
                             }
                         }
                         else
                         {
                             bJob.NeedsJob = JobType.New;
-                            job.AllJobs.Add(bJob);
-                            job.NewFiles.Add(bJob);
+                            AllJobs.Add(bJob);
+                            NewFiles.Add(bJob);
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {containerName}. Item: {blob.Uri} Scanned Items: #{job.ScannedItems}. Ex message:" + ex.Message);
+                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {containerName}. Item: {blob.Uri} Scanned Items: #{ScannedItems}. Ex message:" + ex.Message);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"OUTER EXCEPTION ({containerName}) #{job.ScannedItems}: " + ex.Message);
+                Console.WriteLine($"OUTER EXCEPTION ({containerName}) #{ScannedItems}: " + ex.Message);
             }
 
-            job.Tasks.Add(Task.Run(() =>
+            Tasks.Add(Task.Run(() =>
             {
                 // scan for deleted files by checking if we have a file in the local file system that we did not find remotely
                 foreach (var fileName in Directory.GetFiles(localContainerPath, "*", SearchOption.AllDirectories))
                 {
                     if (!fileName.Contains("[MODIFIED ") && !fileName.Contains("[DELETED "))
                         continue;
-                    if (!job.AllRemoteFiles.Contains(fileName))
+                    if (!AllRemoteFiles.Contains(fileName))
                     {
                         Console.Write("D");
                         File.Move(fileName, fileName + $"[DELETED {DateTime.Now.ToString("yyyyMMddHmm")}]");
-                        job.DeletedFiles.Add(fileName);
+                        DeletedFiles.Add(fileName);
                     }
                 }
             }));
 
-            return job;
+            return this;
         }
 
-        public async Task ProcessJob(BackupJob job, int simultaniousDownloads)
+        public async Task ProcessJob(int simultaniousDownloads)
         {
             var throttler = new SemaphoreSlim(initialCount: simultaniousDownloads);
 
-            if (job.AllJobs.Any())
+            if (AllJobs.Any())
             {
-                Console.Write($"Working on files {job.AllJobs.Count}: ");
+                Console.Write($"Working on files {AllJobs.Count}: ");
                 void releaseThrottler() => throttler.Release();
 
-                foreach (var item in job.AllJobs)
+                foreach (var item in AllJobs)
                 {
                     item.JobFinally = releaseThrottler;
                     await throttler.WaitAsync();
-                    job.Tasks.Add(Task.Run(item.DoJob));
+                    Tasks.Add(Task.Run(item.DoJob));
                 }
             }
 
-            await Task.WhenAll(job.Tasks);
+            await Task.WhenAll(Tasks);
             Console.WriteLine();
         }
 
@@ -178,22 +189,6 @@ namespace BlobBackup
                     JobFinally();
                 }
             }
-        }
-
-        public class BackupJob
-        {
-            public int ScannedItems = 0;
-            public int IgnoredItems = 0;
-            public int UpToDateItems = 0;
-            public readonly List<BlobJob> NewFiles = new List<BlobJob>();
-            public readonly List<BlobJob> ModifiedFiles = new List<BlobJob>();
-            public readonly List<string> DeletedFiles = new List<string>();
-            public long NewFilesSize => NewFiles.Sum(b => b.Blob.Size);
-            public long ModifiedFilesSize => ModifiedFiles.Sum(b => b.Blob.Size);
-
-            internal HashSet<string> AllRemoteFiles = new HashSet<string>();
-            internal List<BlobJob> AllJobs = new List<BlobJob>();
-            internal List<Task> Tasks = new List<Task>();
         }
     }
 }

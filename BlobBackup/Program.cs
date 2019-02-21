@@ -61,7 +61,7 @@ namespace BlobBackup
             Console.WriteLine($"{job.IgnoredItems} ignored items.");
             Console.WriteLine("Processing...");
 
-            await backup.ProcessJob(job, options.Parallel);
+            await backup.ProcessJob(options.Parallel);
             Console.WriteLine($"{job.DeletedFiles.Count} files deleted.");
 
             sw.Stop();
