@@ -157,7 +157,7 @@ namespace BlobBackup
                 LocalFileName = localFileName;
             }
 
-            public async Task DoJob()
+            public async Task<bool> DoJob()
             {
                 try
                 {
@@ -173,12 +173,13 @@ namespace BlobBackup
                     }
                     else
                     {
-                        return;
+                        return true;
                     }
 
                     await Blob.DownloadToFileAsync(LocalFileName, FileMode.Create);
                     File.SetLastWriteTimeUtc(LocalFileName, Blob.LastModified.UtcDateTime);
                     NeedsJob = JobType.None;
+                    return true;
                 }
                 catch (StorageException ex)
                 {
@@ -194,6 +195,7 @@ namespace BlobBackup
                 {
                     JobFinally();
                 }
+                return false;
             }
         }
     }
