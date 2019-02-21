@@ -59,8 +59,8 @@ namespace BlobBackup
 
             Console.WriteLine();
             Console.WriteLine($"Scanned {job.ScannedItems} remote items.");
-            Console.WriteLine($"{job.NewFiles.Count} new files. Total size {FormatSize(job.NewFilesSize)}.");
-            Console.WriteLine($"{job.ModifiedFiles.Count} modified files. Total size {FormatSize(job.ModifiedFilesSize)}.");
+            Console.WriteLine($"{job.NewItems} new files. Total size {FormatSize(job.NewItemsSize)}.");
+            Console.WriteLine($"{job.ModifiedItems} modified files. Total size {FormatSize(job.ModifiedItemsSize)}.");
             Console.WriteLine($"{job.UpToDateItems} files up to date.");
             Console.WriteLine($"{job.IgnoredItems} ignored items.");
 

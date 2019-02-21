@@ -17,11 +17,11 @@ namespace BlobBackup
         public int ScannedItems = 0;
         public int IgnoredItems = 0;
         public int UpToDateItems = 0;
-        public readonly List<BlobJob> NewFiles = new List<BlobJob>();
-        public readonly List<BlobJob> ModifiedFiles = new List<BlobJob>();
+        public int NewItems = 0;
+        public int ModifiedItems = 0;
         public int DeletedItems = 0;
-        public long NewFilesSize => NewFiles.Sum(b => b.Blob.Size);
-        public long ModifiedFilesSize => ModifiedFiles.Sum(b => b.Blob.Size);
+        public long NewItemsSize = 0;
+        public long ModifiedItemsSize = 0;
 
         private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
         private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
@@ -70,14 +70,16 @@ namespace BlobBackup
                         {
                             bJob.NeedsJob = JobType.New;
                             BlobJobQueue.AddDone(bJob);
-                            NewFiles.Add(bJob);
+                            NewItems++;
+                            NewItemsSize += blob.Size;
                         }
                         else if (file.Size != blob.Size || file.LastWriteTimeUtc < blob.LastModifiedUtc.UtcDateTime ||
                             (file.MD5 != null && !string.IsNullOrEmpty(blob.MD5) && file.MD5 != blob.MD5))
                         {
                             bJob.NeedsJob = JobType.Modified;
                             BlobJobQueue.AddDone(bJob);
-                            ModifiedFiles.Add(bJob);
+                            ModifiedItems++;
+                            ModifiedItemsSize += blob.Size;
                         }
                         else
                         {
@@ -119,17 +121,19 @@ namespace BlobBackup
 
         public async Task ProcessJob(int simultaniousDownloads)
         {
-            var throttler = new SemaphoreSlim(initialCount: simultaniousDownloads);
-            void releaseThrottler() => throttler.Release();
-
             foreach (var item in BlobJobQueue.GetDoneEnumerable())
             {
-                item.JobFinally = releaseThrottler;
-                await throttler.WaitAsync();
+                while (Tasks.Count >= simultaniousDownloads)
+                {
+                    var finishedTask = await Task.WhenAny(Tasks);
+                    Tasks.Remove(finishedTask);
+                    RunQueue<BlobJob>.CleanupTaskList(Tasks);
+                }
                 Tasks.Add(Task.Run(item.DoJob));
             }
 
             await Task.WhenAll(Tasks);
+            RunQueue<BlobJob>.CleanupTaskList(Tasks);
         }
 
         internal enum JobType
@@ -145,7 +149,6 @@ namespace BlobBackup
             internal readonly string LocalFilePath;
             internal ILocalFileInfo FileInfo;
             internal JobType NeedsJob = JobType.None;
-            internal Action JobFinally;
 
             public BlobJob(BlobItem blob, string localFilePath)
             {
@@ -195,10 +198,6 @@ namespace BlobBackup
                 catch (System.IO.IOException ex)
                 {
                     Console.Write("Swallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
-                }
-                finally
-                {
-                    JobFinally();
                 }
                 return false;
             }
