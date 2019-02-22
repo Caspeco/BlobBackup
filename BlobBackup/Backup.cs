@@ -43,6 +43,14 @@ namespace BlobBackup
             var localContainerPath = Path.Combine(_localPath, _containerName);
             Directory.CreateDirectory(localContainerPath);
 
+            var localFileListTask = Task.Run(() =>
+            {
+                // load list of local files
+                return Directory.GetFiles(localContainerPath, "*", SearchOption.AllDirectories).
+                Where(f => !f.Contains(FLAG_MODIFIED) && !f.Contains(FLAG_DELETED)).
+                ToList();
+            });
+
             try
             {
                 foreach (var blob in BlobItem.BlobEnumerator(_containerName, accountName, accountKey))
@@ -61,8 +69,9 @@ namespace BlobBackup
                             continue;
                         }
 
-                        var bJob = new BlobJob(blob, Path.Combine(_localPath, blob.GetLocalFileName()));
-                        ExpectedLocalFiles.Add(bJob.LocalFilePath);
+                        var localFileName = blob.GetLocalFileName();
+                        var bJob = new BlobJob(blob, Path.Combine(_localPath, localFileName));
+                        ExpectedLocalFiles.Add(localFileName);
 
                         ILocalFileInfo file = new LocalFileInfoDisk(bJob.LocalFilePath);
                         bJob.FileInfo = file;
@@ -98,21 +107,20 @@ namespace BlobBackup
             }
             BlobJobQueue.RunnerDone();
 
-            Tasks.Add(Task.Run(() =>
+            Tasks.Add(Task.Run(async () =>
             {
                 // scan for deleted files by checking if we have a file locally that we did not find remotely
-                foreach (var fileName in Directory.GetFiles(localContainerPath, "*", SearchOption.AllDirectories))
+                var nowUtc = DateTime.UtcNow;
+                foreach (var fileName in await localFileListTask)
                 {
-                    if (fileName.Contains(FLAG_MODIFIED) || fileName.Contains(FLAG_DELETED))
-                        continue;
-                    if (!ExpectedLocalFiles.Contains(fileName))
+                    var localFilename = fileName;
+                    if (localFilename.StartsWith(_localPath)) localFilename = localFilename.Substring(_localPath.Length + 1);
+                    if (!ExpectedLocalFiles.Contains(localFilename))
                     {
                         Console.Write("D");
-                        var nowUtc = DateTime.UtcNow;
                         File.Move(fileName, fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                         DeletedItems++;
                     }
-                    ExpectedLocalFiles.Remove(fileName);
                 }
             }));
 
