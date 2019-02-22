@@ -26,6 +26,11 @@ namespace BlobBackup
         private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
         private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
         internal List<Task> Tasks = new List<Task>();
+
+        private static readonly HashSet<char> JobChars = new HashSet<char>();
+        private static DateTime LastConsoleWrite = DateTime.MinValue;
+        private static DateTime LastConsoleWriteLine = DateTime.MinValue;
+
         private FileInfoSqlite _sqlLite;
 
         public Backup(string localPath, string containerName)
@@ -40,7 +45,7 @@ namespace BlobBackup
         private const string FLAG_DATEFORMAT = "yyyyMMddHmm";
         private const string FLAG_END = "]";
 
-        public Backup PrepareJob(string accountName, string accountKey, IProgress<int> progress)
+        public Backup PrepareJob(string accountName, string accountKey)
         {
             var localContainerPath = Path.Combine(_localPath, _containerName);
             Directory.CreateDirectory(localContainerPath);
@@ -63,7 +68,9 @@ namespace BlobBackup
                     {
                         if (ScannedItems % 10000 == 0)
                         {
-                            progress.Report(ScannedItems);
+                            // set progress JobChar for next console update
+                            JobChars.Add('.');
+                            CheckPrintConsole();
                         }
 
                         if (blob == null)
@@ -121,7 +128,7 @@ namespace BlobBackup
                     if (localFilename.StartsWith(_localPath)) localFilename = localFilename.Substring(_localPath.Length + 1);
                     if (!ExpectedLocalFiles.Contains(localFilename))
                     {
-                        Console.Write("D");
+                        JobChars.Add('D');
                         File.Move(fileName, fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                         DeletedItems++;
                     }
@@ -134,7 +141,7 @@ namespace BlobBackup
                 {
                     if (!ExpectedLocalFiles.Contains(fileInfo.LocalName))
                     {
-                        Console.Write("d");
+                        JobChars.Add('d');
                         fileInfo.DeleteDetectedTime = nowUtc;
                         string fileName = Path.Combine(_localPath, fileInfo.LocalName);
 
@@ -151,12 +158,38 @@ namespace BlobBackup
             return this;
         }
 
+        private bool CheckPrintConsole()
+        {
+            var utcNow = DateTime.UtcNow;
+
+            var jChars = JobChars.ToArray();
+            if (jChars.Length > 0 && LastConsoleWrite < utcNow.AddSeconds(-10))
+            {
+                // don't spam console to much, here we print the last Job item we dealt with
+                JobChars.RemoveWhere(jChars.Contains);
+                LastConsoleWrite = utcNow;
+                Console.Write(string.Join("", jChars));
+            }
+
+            if (LastConsoleWriteLine < utcNow.AddMinutes(-2))
+            {
+                LastConsoleWriteLine = utcNow;
+                // flushes every 2 minutes
+                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {ScannedItems} scanned, {Tasks.Count} tasks, {BlobJobQueue.QueueCount} waiting jobs");
+                Console.Out.Flush();
+                return true;
+            }
+
+            return jChars.Length > 0;
+        }
+
         public async Task ProcessJob(int simultaniousDownloads)
         {
             foreach (var item in BlobJobQueue.GetDoneEnumerable())
             {
-                while (Tasks.Count >= simultaniousDownloads)
+                if (Tasks.Count >= simultaniousDownloads)
                 {
+                    CheckPrintConsole();
                     var finishedTask = await Task.WhenAny(Tasks);
                     Tasks.Remove(finishedTask);
                     RunQueue<BlobJob>.CleanupTaskList(Tasks);
@@ -183,6 +216,8 @@ namespace BlobBackup
             internal ILocalFileInfo FileInfo;
             internal FileInfoSqlite.FileInfo SqlFileInfo => FileInfo as FileInfoSqlite.FileInfo;
             internal JobType NeedsJob = JobType.None;
+
+            private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
 
             public BlobJob(BlobItem blob, string localFilePath)
             {
@@ -211,11 +246,17 @@ namespace BlobBackup
                     LocalFileInfoDisk lfi = null;
                     if (NeedsJob == JobType.New)
                     {
-                        Console.Write("N");
-                        Directory.CreateDirectory(Path.GetDirectoryName(LocalFilePath));
+                        JobChars.Add('N');
+                        var dir = Path.GetDirectoryName(LocalFilePath);
+                        if (!HasCreatedDirectories.Contains(dir))
+                        {
+                            Directory.CreateDirectory(dir);
+                            HasCreatedDirectories.Add(dir);
+                        }
                     }
                     else if (NeedsJob == JobType.Modified)
                     {
+                        JobChars.Add('m');
                         lfi = new LocalFileInfoDisk(LocalFilePath);
                         if (FileInfo.Size == Blob.Size &&
                             (FileInfo.MD5 != null && !string.IsNullOrEmpty(Blob.MD5) && FileInfo.MD5 == Blob.MD5))
@@ -226,7 +267,6 @@ namespace BlobBackup
                                 File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
                             return true;
                         }
-                        Console.Write("m");
                         if (lfi.Exists)
                             File.Move(LocalFilePath, LocalFilePath + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                     }
@@ -243,6 +283,7 @@ namespace BlobBackup
                         NeedsJob = JobType.None;
                         return true;
                     }
+
                     await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
                     if (lfi == null) lfi = new LocalFileInfoDisk(LocalFilePath);
                     if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)

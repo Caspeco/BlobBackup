@@ -52,7 +52,7 @@ namespace BlobBackup
             Console.WriteLine("Scanning and processing remote items ");
             var sw = Stopwatch.StartNew();
 
-            var prepTask = Task.Run(() => job.PrepareJob(options.AccountName, options.AccountKey, new Progress<int>(v => { Console.Write("."); })));
+            var prepTask = Task.Run(() => job.PrepareJob(options.AccountName, options.AccountKey));
             job.Tasks.Add(prepTask);
             var processTask = job.ProcessJob(options.Parallel);
             await prepTask;
