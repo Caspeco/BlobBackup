@@ -136,6 +136,7 @@ namespace BlobBackup
         {
             foreach (var remTask in taskList.ToArray().Where(t => t.Status == TaskStatus.RanToCompletion))
             {
+                remTask.GetAwaiter().GetResult();
                 taskList.Remove(remTask);
             }
         }
