@@ -53,24 +53,27 @@ namespace BlobBackup
             var sw = Stopwatch.StartNew();
 
             var prepTask = Task.Run(() => job.PrepareJob(options.AccountName, options.AccountKey));
-            job.Tasks.Add(prepTask);
+            job.AddTasks(prepTask);
             var processTask = job.ProcessJob(options.Parallel);
             await prepTask;
 
             Console.WriteLine();
-            Console.WriteLine($"Scanned {job.ScannedItems} remote items.");
+            Console.WriteLine($"Scanned {job.ScannedItems} remote items and found:");
             Console.WriteLine($"{job.NewItems} new files. Total size {FormatSize(job.NewItemsSize)}.");
             Console.WriteLine($"{job.ModifiedItems} modified files. Total size {FormatSize(job.ModifiedItemsSize)}.");
             Console.WriteLine($"{job.UpToDateItems} files up to date.");
             Console.WriteLine($"{job.IgnoredItems} ignored items.");
+            Console.Write("Still working ...");
+            job.CheckPrintConsole(true);
 
             await processTask;
-            Console.WriteLine();
-            Console.WriteLine($"{job.DeletedItems} files deleted.");
-
             sw.Stop();
             Console.WriteLine();
-            Console.WriteLine($"Done in {sw.Elapsed.ToString()}.");
+            Console.Write($"{job.DeletedItems} files deleted.");
+            job.CheckPrintConsole(true);
+
+            Console.WriteLine();
+            Console.WriteLine($"Done in {sw.Elapsed.ToString()}");
             if (Debugger.IsAttached) Console.ReadKey();
             return 0;
         }

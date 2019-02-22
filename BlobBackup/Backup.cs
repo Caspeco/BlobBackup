@@ -25,7 +25,9 @@ namespace BlobBackup
 
         private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
         private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
-        internal List<Task> Tasks = new List<Task>();
+        private readonly object _tasksListLock = new object();
+        private List<Task> _tasks = new List<Task>();
+        public int TaskCount => _tasks.Count;
 
         private static readonly HashSet<char> JobChars = new HashSet<char>();
         private static DateTime LastConsoleWrite = DateTime.MinValue;
@@ -44,6 +46,29 @@ namespace BlobBackup
         private const string FLAG_DELETED = "[DELETED ";
         private const string FLAG_DATEFORMAT = "yyyyMMddHmm";
         private const string FLAG_END = "]";
+
+        internal void AddTasks(params Task[] tasks)
+        {
+            lock (_tasksListLock)
+                _tasks.AddRange(tasks);
+        }
+
+        private Task[] GetTasks()
+        {
+            lock (_tasksListLock)
+                return _tasks.ToArray();
+        }
+
+        internal async Task WaitTaskAndClean()
+        {
+            var taskSet = GetTasks();
+            var finishedTask = taskSet.Length > 0 ? await Task.WhenAny(taskSet) : null;
+            lock (_tasksListLock)
+            {
+                _tasks.Remove(finishedTask);
+                RunQueue<BlobJob>.CleanupTaskList(_tasks);
+            }
+        }
 
         public Backup PrepareJob(string accountName, string accountKey)
         {
@@ -117,9 +142,10 @@ namespace BlobBackup
             }
             _sqlLite.EndTransaction();
             BlobJobQueue.RunnerDone();
+            CheckPrintConsole(true);
 
             var nowUtc = DateTime.UtcNow;
-            Tasks.Add(Task.Run(async () =>
+            var fileDelTask = Task.Run(async () =>
             {
                 // scan for deleted files by checking if we have a file locally that we did not find remotely
                 foreach (var fileName in await localFileListTask)
@@ -133,9 +159,9 @@ namespace BlobBackup
                         DeletedItems++;
                     }
                 }
-            }));
+            });
 
-            Tasks.Add(Task.Run(() =>
+            var sqlDelTask = Task.Run(() =>
             {
                 foreach (var fileInfo in _sqlLite.GetAllFileInfos())
                 {
@@ -153,12 +179,13 @@ namespace BlobBackup
                         DeletedItems++;
                     }
                 }
-            }));
+            });
+            AddTasks(fileDelTask, sqlDelTask);
 
             return this;
         }
 
-        private bool CheckPrintConsole()
+        internal bool CheckPrintConsole(bool forceFull = false)
         {
             var utcNow = DateTime.UtcNow;
 
@@ -168,14 +195,14 @@ namespace BlobBackup
                 // don't spam console to much, here we print the last Job item we dealt with
                 JobChars.RemoveWhere(jChars.Contains);
                 LastConsoleWrite = utcNow;
-                Console.Write(string.Join("", jChars));
+                Console.Write(string.Join(string.Empty, jChars));
             }
 
-            if (LastConsoleWriteLine < utcNow.AddMinutes(-2))
+            if (forceFull || LastConsoleWriteLine < utcNow.AddMinutes(-2))
             {
                 LastConsoleWriteLine = utcNow;
                 // flushes every 2 minutes
-                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {ScannedItems} scanned, {Tasks.Count} tasks, {BlobJobQueue.QueueCount} waiting jobs");
+                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {ScannedItems} scanned, {TaskCount} tasks, {BlobJobQueue.QueueCount} waiting jobs");
                 Console.Out.Flush();
                 return true;
             }
@@ -187,18 +214,20 @@ namespace BlobBackup
         {
             foreach (var item in BlobJobQueue.GetDoneEnumerable())
             {
-                if (Tasks.Count >= simultaniousDownloads)
+                if (TaskCount >= simultaniousDownloads)
                 {
                     CheckPrintConsole();
-                    var finishedTask = await Task.WhenAny(Tasks);
-                    Tasks.Remove(finishedTask);
-                    RunQueue<BlobJob>.CleanupTaskList(Tasks);
+                    await WaitTaskAndClean();
                 }
-                Tasks.Add(Task.Run(item.DoJob));
+                AddTasks(Task.Run(item.DoJob));
             }
+            CheckPrintConsole(true);
 
-            await Task.WhenAll(Tasks);
-            RunQueue<BlobJob>.CleanupTaskList(Tasks);
+            while (TaskCount > 0)
+            {
+                await Task.WhenAll(GetTasks());
+                await WaitTaskAndClean();
+            }
             _sqlLite.Dispose();
         }
 
