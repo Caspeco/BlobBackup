@@ -26,11 +26,13 @@ namespace BlobBackup
         private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
         private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
         internal List<Task> Tasks = new List<Task>();
+        private FileInfoSqlite _sqlLite;
 
         public Backup(string localPath, string containerName)
         {
             _localPath = localPath;
             _containerName = containerName;
+            _sqlLite = new FileInfoSqlite(containerName, Path.GetFullPath(Path.Combine(_localPath, "..", "sqllite")));
         }
 
         private const string FLAG_MODIFIED = "[MODIFIED ";
@@ -53,6 +55,7 @@ namespace BlobBackup
 
             try
             {
+                _sqlLite.BeginTransaction();
                 foreach (var blob in BlobItem.BlobEnumerator(_containerName, accountName, accountKey))
                 {
                     ScannedItems++;
@@ -73,7 +76,7 @@ namespace BlobBackup
                         var bJob = new BlobJob(blob, Path.Combine(_localPath, localFileName));
                         ExpectedLocalFiles.Add(localFileName);
 
-                        ILocalFileInfo file = new LocalFileInfoDisk(bJob.LocalFilePath);
+                        ILocalFileInfo file = _sqlLite.GetFileInfo(blob, bJob.LocalFilePath);
                         bJob.FileInfo = file;
                         if (!file.Exists)
                         {
@@ -105,12 +108,13 @@ namespace BlobBackup
             {
                 Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{ScannedItems}: " + ex.Message);
             }
+            _sqlLite.EndTransaction();
             BlobJobQueue.RunnerDone();
 
+            var nowUtc = DateTime.UtcNow;
             Tasks.Add(Task.Run(async () =>
             {
                 // scan for deleted files by checking if we have a file locally that we did not find remotely
-                var nowUtc = DateTime.UtcNow;
                 foreach (var fileName in await localFileListTask)
                 {
                     var localFilename = fileName;
@@ -119,6 +123,26 @@ namespace BlobBackup
                     {
                         Console.Write("D");
                         File.Move(fileName, fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                        DeletedItems++;
+                    }
+                }
+            }));
+
+            Tasks.Add(Task.Run(() =>
+            {
+                foreach (var fileInfo in _sqlLite.GetAllFileInfos())
+                {
+                    if (!ExpectedLocalFiles.Contains(fileInfo.LocalName))
+                    {
+                        Console.Write("d");
+                        fileInfo.DeleteDetectedTime = nowUtc;
+                        string fileName = Path.Combine(_localPath, fileInfo.LocalName);
+
+                        var newName = fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
+                        if (File.Exists(fileName))
+                            File.Move(fileName, newName);
+                        else
+                            File.Create(newName + ".empty"); // creates dummy file to mark as deleted
                         DeletedItems++;
                     }
                 }
@@ -142,6 +166,7 @@ namespace BlobBackup
 
             await Task.WhenAll(Tasks);
             RunQueue<BlobJob>.CleanupTaskList(Tasks);
+            _sqlLite.Dispose();
         }
 
         internal enum JobType
@@ -156,6 +181,7 @@ namespace BlobBackup
             internal readonly BlobItem Blob;
             internal readonly string LocalFilePath;
             internal ILocalFileInfo FileInfo;
+            internal FileInfoSqlite.FileInfo SqlFileInfo => FileInfo as FileInfoSqlite.FileInfo;
             internal JobType NeedsJob = JobType.None;
 
             public BlobJob(BlobItem blob, string localFilePath)
@@ -181,6 +207,7 @@ namespace BlobBackup
             {
                 try
                 {
+                    SqlFileInfo.UpdateFromAzure(Blob);
                     LocalFileInfoDisk lfi = null;
                     if (NeedsJob == JobType.New)
                     {
@@ -194,6 +221,7 @@ namespace BlobBackup
                             (FileInfo.MD5 != null && !string.IsNullOrEmpty(Blob.MD5) && FileInfo.MD5 == Blob.MD5))
                         {
                             // since size and hash is the same as last, we just ignore this and don't update
+                            SqlFileInfo.UpdateDb();
                             if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
                                 File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
                             return true;
@@ -210,6 +238,8 @@ namespace BlobBackup
                     if (WellKnownBlob(Blob))
                     {
                         // no real download of these files
+                        SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
+                        SqlFileInfo.UpdateDb();
                         NeedsJob = JobType.None;
                         return true;
                     }
@@ -217,6 +247,10 @@ namespace BlobBackup
                     if (lfi == null) lfi = new LocalFileInfoDisk(LocalFilePath);
                     if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
                         File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
+                    if (lfi.Exists && string.IsNullOrEmpty(lfi.MD5))
+                        lfi.CalculateMd5();
+                    SqlFileInfo.UpdateFromFileInfo(lfi);
+                    SqlFileInfo.UpdateDb();
 
                     NeedsJob = JobType.None;
                     return true;
