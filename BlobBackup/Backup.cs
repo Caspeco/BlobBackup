@@ -300,11 +300,12 @@ namespace BlobBackup
                 {
                     // Swallow 404 exceptions.
                     // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
-                    Console.Write("Swallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
+                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
                 }
                 catch (System.IO.IOException ex)
                 {
-                    Console.Write("Swallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
+                    HasCreatedDirectories.Clear();
+                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
                 }
                 return false;
             }
