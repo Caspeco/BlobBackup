@@ -168,6 +168,7 @@ namespace BlobBackup
             {
                 try
                 {
+                    LocalFileInfoDisk lfi = null;
                     if (NeedsJob == JobType.New)
                     {
                         Console.Write("N");
@@ -175,14 +176,18 @@ namespace BlobBackup
                     }
                     else if (NeedsJob == JobType.Modified)
                     {
+                        lfi = new LocalFileInfoDisk(LocalFilePath);
                         if (FileInfo.Size == Blob.Size &&
                             (FileInfo.MD5 != null && !string.IsNullOrEmpty(Blob.MD5) && FileInfo.MD5 == Blob.MD5))
                         {
                             // since size and hash is the same as last, we just ignore this and don't update
+                            if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
+                                File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
                             return true;
                         }
                         Console.Write("m");
-                        File.Move(LocalFilePath, LocalFilePath + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                        if (lfi.Exists)
+                            File.Move(LocalFilePath, LocalFilePath + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                     }
                     else
                     {
@@ -190,7 +195,7 @@ namespace BlobBackup
                     }
 
                     await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
-                    var lfi = new LocalFileInfoDisk(LocalFilePath);
+                    if (lfi == null) lfi = new LocalFileInfoDisk(LocalFilePath);
                     if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
                         File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
 
