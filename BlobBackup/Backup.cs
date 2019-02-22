@@ -164,6 +164,19 @@ namespace BlobBackup
                 LocalFilePath = localFilePath;
             }
 
+            private static bool WellKnownBlob(BlobItem blob)
+            {
+                // Ignore empty files
+                if (blob.Size == 0)
+                    return true;
+
+                // Ignore files only containing "[]"
+                if (blob.Size == 2 && blob.MD5 == "11FxOYiYfpMxmANj4kGJzg==")
+                    return true;
+
+                return false;
+            }
+
             public async Task<bool> DoJob()
             {
                 try
@@ -194,6 +207,12 @@ namespace BlobBackup
                         return true;
                     }
 
+                    if (WellKnownBlob(Blob))
+                    {
+                        // no real download of these files
+                        NeedsJob = JobType.None;
+                        return true;
+                    }
                     await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
                     if (lfi == null) lfi = new LocalFileInfoDisk(LocalFilePath);
                     if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
