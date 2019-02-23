@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace BlobBackup
 {
-    internal class Backup
+    internal class Backup : IDisposable
     {
         private readonly string _localPath;
         private readonly string _containerName;
@@ -229,6 +229,7 @@ namespace BlobBackup
                 await WaitTaskAndClean();
             }
             _sqlLite.Dispose();
+            _sqlLite = null;
         }
 
         internal enum JobType
@@ -339,5 +340,41 @@ namespace BlobBackup
                 return false;
             }
         }
+
+        #region IDisposable Support
+        private bool disposedValue = false; // To detect redundant calls
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    var sqlInstance = _sqlLite;
+                    if (sqlInstance != null)
+                    {
+                        sqlInstance.Dispose();
+                        _sqlLite = null;
+                    }
+
+                    var runQ = BlobJobQueue;
+                    if (runQ != null)
+                    {
+                        runQ.Dispose();
+                        BlobJobQueue = null;
+                    }
+                }
+                ExpectedLocalFiles = null;
+
+                disposedValue = true;
+            }
+        }
+
+        // This code added to correctly implement the disposable pattern.
+        void IDisposable.Dispose()
+        {
+            Dispose(true);
+        }
+        #endregion
     }
 }

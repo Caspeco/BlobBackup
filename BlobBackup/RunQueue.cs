@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace BlobBackup
 {
-    public class RunQueue<T>
+    public class RunQueue<T> : IDisposable
     {
         private object _doneQueueLock = new object();
         private bool _noMoreAddsToBeDone;
@@ -140,5 +140,28 @@ namespace BlobBackup
                 taskList.Remove(remTask);
             }
         }
+
+        #region IDisposable Support
+        private bool disposedValue = false; // To detect redundant calls
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    _doneReset.Dispose();
+                }
+
+                disposedValue = true;
+            }
+        }
+
+        // This code added to correctly implement the disposable pattern.
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+        #endregion
     }
 }
