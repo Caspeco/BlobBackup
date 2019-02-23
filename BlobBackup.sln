@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlobBackup", "BlobBackup\Bl
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlobBackup.Test", "BlobBackup.Test\BlobBackup.Test.csproj", "{FCBE79DA-5058-48E4-99F3-8F9789AF526C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArchiveFilemover", "ArchiveFilemover\ArchiveFilemover.csproj", "{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{FCBE79DA-5058-48E4-99F3-8F9789AF526C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FCBE79DA-5058-48E4-99F3-8F9789AF526C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FCBE79DA-5058-48E4-99F3-8F9789AF526C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
