@@ -9,15 +9,6 @@ namespace BlobBackup
 {
     public class Program
     {
-        // todo:
-        // Logga till en fil så att vi kan se hur det gick
-        // try catch ? Hur sköter vi TransientErrors
-        // Jämföra checksum för att inte ladda hem samma content två ggr
-        // Skicka mejl eller på något annat sätt signalera att det funkar som det ska
-        // ladda hem async och parralelt
-        // DONE - timings
-        // fler containers (samtliga)
-
         private static string FormatSize(long size)
         {
             string[] sizes = { "B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
