@@ -5,6 +5,8 @@ VisualStudioVersion = 15.0.26430.13
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlobBackup", "BlobBackup\BlobBackup.csproj", "{CF2DB6E3-C462-48C5-8209-81395374963B}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlobBackup.Test", "BlobBackup.Test\BlobBackup.Test.csproj", "{FCBE79DA-5058-48E4-99F3-8F9789AF526C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,8 +17,15 @@ Global
 		{CF2DB6E3-C462-48C5-8209-81395374963B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CF2DB6E3-C462-48C5-8209-81395374963B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CF2DB6E3-C462-48C5-8209-81395374963B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FCBE79DA-5058-48E4-99F3-8F9789AF526C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FCBE79DA-5058-48E4-99F3-8F9789AF526C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FCBE79DA-5058-48E4-99F3-8F9789AF526C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FCBE79DA-5058-48E4-99F3-8F9789AF526C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {1A4076E0-B9FA-4342-8478-6377EEC586D3}
 	EndGlobalSection
 EndGlobal

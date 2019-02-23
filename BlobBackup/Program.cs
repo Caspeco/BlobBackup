@@ -9,19 +9,22 @@ namespace BlobBackup
 {
     public class Program
     {
-        private static string FormatSize(long size)
+        private enum FileSizeUnit : byte
         {
-            string[] sizes = { "B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
-            int order = 0;
-            while (size >= 1024 && order < sizes.Length - 1)
-            {
-                order++;
-                size = size / 1024;
-            }
+            B, KB, MB,
+            GB, TB, PB,
+            EB, ZB, YB,
+        }
 
-            // Adjust the format string to your preferences. For example "{0:0.#}{1}" would
-            // show a single decimal place, and no space.
-            return string.Format("{0:0.##} {1}", size, sizes[order]);
+        public static string FormatSize(double size)
+        {
+            var unit = FileSizeUnit.B;
+            while (size >= 1024 && unit < FileSizeUnit.YB)
+            {
+                size = size / 1024;
+                unit++;
+            }
+            return string.Format("{0:#,##0.##} {1}", size, unit);
         }
 
         public static int Main(string[] args)
