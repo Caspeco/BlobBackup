@@ -27,9 +27,41 @@ namespace ArchiveFilemover
             var items = await MoveFiles(options);
             sw.Stop();
 
-            Console.WriteLine($"Done {items} items traversed in {sw.Elapsed.ToString()}");
+            Console.WriteLine($"Move done {items} items traversed in {sw.Elapsed.ToString()}");
+
+            sw = Stopwatch.StartNew();
+            Console.WriteLine("Removing empty dirs...");
+            DeleteEmptyDirs(options.SourcePath);
+            sw.Stop();
+            Console.WriteLine($"Empty removal done after {sw.Elapsed.ToString()}");
+
             if (Debugger.IsAttached) Console.ReadKey();
             return 0;
+        }
+
+        public static bool DeleteEmptyDirs(string dir)
+        {
+            bool noRemainingDirs = true;
+            // walk all subdirs, and recursively remove
+            foreach (var d in Directory.EnumerateDirectories(dir))
+            {
+                noRemainingDirs = DeleteEmptyDirs(d) & noRemainingDirs;
+            }
+            // if subdir failed removal, or there is any files in the dir return as not deleted
+            if (!noRemainingDirs || Directory.EnumerateFileSystemEntries(dir).Any())
+                return false;
+
+            try
+            {
+                // try to delete, and if ok return true for delete ok
+                Directory.Delete(dir);
+                Console.WriteLine(dir);
+                return true;
+            }
+            catch (UnauthorizedAccessException) { }
+            catch (DirectoryNotFoundException) { }
+            // failure to delete is false
+            return false;
         }
 
         private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
