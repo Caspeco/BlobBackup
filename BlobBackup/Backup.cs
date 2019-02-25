@@ -44,7 +44,7 @@ namespace BlobBackup
 
         private const string FLAG_MODIFIED = "[MODIFIED ";
         private const string FLAG_DELETED = "[DELETED ";
-        private const string FLAG_DATEFORMAT = "yyyyMMddHmm";
+        private const string FLAG_DATEFORMAT = "yyyyMMddHHmm";
         private const string FLAG_END = "]";
 
         internal void AddTasks(params Task[] tasks)
