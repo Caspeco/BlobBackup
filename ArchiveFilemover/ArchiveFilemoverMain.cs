@@ -31,7 +31,7 @@ namespace ArchiveFilemover
 
             sw = Stopwatch.StartNew();
             Console.WriteLine("Removing empty dirs...");
-            DeleteEmptyDirs(options.SourcePath);
+            await DeleteEmptyDirs(options.SourcePath);
             sw.Stop();
             Console.WriteLine($"Empty removal done after {sw.Elapsed.ToString()}");
 
@@ -39,13 +39,15 @@ namespace ArchiveFilemover
             return 0;
         }
 
-        public static bool DeleteEmptyDirs(string dir)
+        public static async Task<bool> DeleteEmptyDirs(string dir)
         {
-            bool noRemainingDirs = true;
             // walk all subdirs, and recursively remove
-            foreach (var d in Directory.EnumerateDirectories(dir))
+            var tasks = Directory.EnumerateDirectories(dir).Select(DeleteEmptyDirs).ToList();
+
+            bool noRemainingDirs = true;
+            foreach (var dt in tasks)
             {
-                noRemainingDirs = DeleteEmptyDirs(d) & noRemainingDirs;
+                noRemainingDirs = await dt & noRemainingDirs;
             }
             // if subdir failed removal, or there is any files in the dir return as not deleted
             if (!noRemainingDirs || Directory.EnumerateFileSystemEntries(dir).Any())
@@ -64,6 +66,14 @@ namespace ArchiveFilemover
             return false;
         }
 
+        private static IEnumerable<FileInfo> EnumerateFilesParallel(DirectoryInfo dir)
+        {
+            return dir.EnumerateDirectories()
+                .AsParallel()
+                .SelectMany(EnumerateFilesParallel)
+                .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly).AsParallel());
+        }
+
         private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
 
         private static async Task<long> MoveFiles(CommandOptions options)
@@ -74,7 +84,7 @@ namespace ArchiveFilemover
             var runStartString = runStart.ToString("yyyyMMdd_HHmm");
             var hasMaxWriteTimeOption = options.MaxWriteTime != DateTime.MinValue;
             var dir = new DirectoryInfo(options.SourcePath);
-            foreach (var fi in dir.EnumerateFiles("*", SearchOption.AllDirectories))
+            foreach (var fi in EnumerateFilesParallel(dir))
             {
                 totalItemsTraversed++;
                 itemsSincePrint++;
