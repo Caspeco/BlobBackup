@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ArchiveFilemover
@@ -66,7 +67,7 @@ namespace ArchiveFilemover
             return false;
         }
 
-        private static IEnumerable<FileInfo> EnumerateFilesParallel(DirectoryInfo dir)
+        private static ParallelQuery<FileInfo> EnumerateFilesParallel(DirectoryInfo dir)
         {
             return dir.EnumerateDirectories()
                 .AsParallel()
@@ -84,11 +85,10 @@ namespace ArchiveFilemover
             var runStartString = runStart.ToString("yyyyMMdd_HHmm");
             var hasMaxWriteTimeOption = options.MaxWriteTime != DateTime.MinValue;
             var dir = new DirectoryInfo(options.SourcePath);
-            foreach (var fi in EnumerateFilesParallel(dir))
+            EnumerateFilesParallel(dir).ForAll(fi =>
             {
-                totalItemsTraversed++;
-                itemsSincePrint++;
-                if (itemsSincePrint % 10000 == 1)
+                Interlocked.Increment(ref totalItemsTraversed);
+                if (Interlocked.Increment(ref itemsSincePrint) % 10000 == 1)
                 {
                     Console.Write('.');
                 }
@@ -97,7 +97,7 @@ namespace ArchiveFilemover
                 {
                     var lastWriteUtc = fi.LastWriteTimeUtc;
                     if (hasMaxWriteTimeOption && lastWriteUtc > options.MaxWriteTime)
-                        continue;
+                        return;
 
                     var destName = fi.FullName.Substring(options.SourcePath.Length + 1);
                     var destFileName = Path.Combine(options.DestinationPath, runStartString + "_modyear_" + lastWriteUtc.Year, destName);
@@ -119,7 +119,7 @@ namespace ArchiveFilemover
                 {
                     Console.WriteLine($"Exception {fi.FullName} " + ex.ToString());
                 }
-            }
+            });
 
             return totalItemsTraversed;
         }

@@ -30,6 +30,7 @@ namespace BlobBackup
         public int TaskCount => _tasks.Count;
 
         private static readonly HashSet<char> JobChars = new HashSet<char>();
+        private static readonly object JobCharsLock = new object();
         private static DateTime LastConsoleWrite = DateTime.MinValue;
         private static DateTime LastConsoleWriteLine = DateTime.MinValue;
 
@@ -70,18 +71,24 @@ namespace BlobBackup
             }
         }
 
+        private static ParallelQuery<FileInfo> EnumerateFilesParallel(DirectoryInfo dir)
+        {
+            return dir.EnumerateDirectories()
+                .AsParallel()
+                .SelectMany(EnumerateFilesParallel)
+                .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly).AsParallel());
+        }
+
         public Backup PrepareJob(string accountName, string accountKey)
         {
             var localContainerPath = Path.Combine(_localPath, _containerName);
             Directory.CreateDirectory(localContainerPath);
+            var localDir = new DirectoryInfo(localContainerPath);
 
-            var localFileListTask = Task.Run(() =>
-            {
-                // load list of local files
-                return Directory.GetFiles(localContainerPath, "*", SearchOption.AllDirectories).
-                Where(f => !f.Contains(FLAG_MODIFIED) && !f.Contains(FLAG_DELETED)).
-                ToList();
-            });
+            // load list of local files
+            // this might take a minute or 2 if many files, since we wait for first yielded item before continueing
+            var localFileList = EnumerateFilesParallel(localDir).
+                    Where(f => !f.Name.Contains(FLAG_MODIFIED) && !f.Name.Contains(FLAG_DELETED));
 
             try
             {
@@ -94,7 +101,7 @@ namespace BlobBackup
                         if (ScannedItems % 10000 == 0)
                         {
                             // set progress JobChar for next console update
-                            JobChars.Add('.');
+                            AddJobChar('.');
                             CheckPrintConsole();
                         }
 
@@ -148,36 +155,33 @@ namespace BlobBackup
             var fileDelTask = Task.Run(async () =>
             {
                 // scan for deleted files by checking if we have a file locally that we did not find remotely
-                foreach (var fileName in await localFileListTask)
+                localFileList.ForAll(file =>
                 {
-                    var localFilename = fileName;
+                    var localFilename = file.Name;
                     if (localFilename.StartsWith(_localPath)) localFilename = localFilename.Substring(_localPath.Length + 1);
-                    if (!ExpectedLocalFiles.Contains(localFilename))
-                    {
-                        JobChars.Add('D');
-                        File.Move(fileName, fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
-                        DeletedItems++;
-                    }
-                }
+                    if (ExpectedLocalFiles.Contains(localFilename))
+                        return;
+                    AddJobChar('D');
+                    file.MoveTo(file.Name + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                    Interlocked.Increment(ref DeletedItems);
+                });
             });
 
             var sqlDelTask = Task.Run(() =>
             {
-                foreach (var fileInfo in _sqlLite.GetAllFileInfos())
+                foreach (var fileInfo in _sqlLite.GetAllFileInfos().
+                    AsParallel().Where(fi => !ExpectedLocalFiles.Contains(fi.LocalName)))
                 {
-                    if (!ExpectedLocalFiles.Contains(fileInfo.LocalName))
-                    {
-                        JobChars.Add('d');
-                        fileInfo.DeleteDetectedTime = nowUtc;
-                        string fileName = Path.Combine(_localPath, fileInfo.LocalName);
+                    AddJobChar('d');
+                    fileInfo.DeleteDetectedTime = nowUtc;
+                    string fileName = Path.Combine(_localPath, fileInfo.LocalName);
 
-                        var newName = fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
-                        if (File.Exists(fileName))
-                            File.Move(fileName, newName);
-                        else
-                            File.Create(newName + ".empty"); // creates dummy file to mark as deleted
-                        DeletedItems++;
-                    }
+                    var newName = fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
+                    if (File.Exists(fileName))
+                        File.Move(fileName, newName);
+                    else
+                        File.Create(newName + ".empty"); // creates dummy file to mark as deleted
+                    Interlocked.Increment(ref DeletedItems);
                 }
             });
             AddTasks(fileDelTask, sqlDelTask);
@@ -185,17 +189,29 @@ namespace BlobBackup
             return this;
         }
 
+        internal static bool AddJobChar(char j)
+        {
+            lock (JobCharsLock)
+            {
+                return JobChars.Add(j);
+            }
+        }
+
         internal bool CheckPrintConsole(bool forceFull = false)
         {
             var utcNow = DateTime.UtcNow;
 
-            var jChars = JobChars.ToArray();
-            if (jChars.Length > 0 && LastConsoleWrite < utcNow.AddSeconds(-10))
+            char[] jChars;
+            lock (JobCharsLock)
             {
-                // don't spam console to much, here we print the last Job item we dealt with
-                JobChars.RemoveWhere(jChars.Contains);
-                LastConsoleWrite = utcNow;
-                Console.Write(string.Join(string.Empty, jChars));
+                jChars = JobChars.ToArray();
+                if (jChars.Length > 0 && LastConsoleWrite < utcNow.AddSeconds(-10))
+                {
+                    // don't spam console to much, here we print the last Job item we dealt with
+                    JobChars.RemoveWhere(jChars.Contains);
+                    LastConsoleWrite = utcNow;
+                    Console.Write(string.Join(string.Empty, jChars));
+                }
             }
 
             if (forceFull || LastConsoleWriteLine < utcNow.AddMinutes(-2))
@@ -276,7 +292,7 @@ namespace BlobBackup
                     LocalFileInfoDisk lfi = null;
                     if (NeedsJob == JobType.New)
                     {
-                        JobChars.Add('N');
+                        AddJobChar('N');
                         var dir = Path.GetDirectoryName(LocalFilePath);
                         if (!HasCreatedDirectories.Contains(dir))
                         {
@@ -286,7 +302,7 @@ namespace BlobBackup
                     }
                     else if (NeedsJob == JobType.Modified)
                     {
-                        JobChars.Add('m');
+                        AddJobChar('m');
                         lfi = new LocalFileInfoDisk(LocalFilePath);
                         if (FileInfo.Size == Blob.Size &&
                             (FileInfo.MD5 != null && !string.IsNullOrEmpty(Blob.MD5) && FileInfo.MD5 == Blob.MD5))

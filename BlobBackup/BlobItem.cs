@@ -39,8 +39,7 @@ namespace BlobBackup
 
         private static BlobItem GetBlobItem(IListBlobItem blobItem)
         {
-            var blob = blobItem as CloudBlockBlob;
-            if (blob == null)
+            if (!(blobItem is CloudBlockBlob blob))
                 return null;
             return new BlobItem(blob);
         }
