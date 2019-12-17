@@ -73,14 +73,13 @@ namespace BlobBackup
 
                 await processTask;
                 sw.Stop();
-                PrintStats(sw, job);
-                job.CheckPrintConsole(true);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Something did a bobo {ex.ToString()}");
-                job.CheckPrintConsole(true);
             }
+            job.CheckPrintConsole(true);
+            PrintStats(sw, job);
 
             Console.WriteLine();
             Console.WriteLine($"Done in {sw.Elapsed.ToString()}");

@@ -89,7 +89,11 @@ namespace BlobBackup
         {
             if (f.Name.Contains(FLAG_MODIFIED) || f.Name.Contains(FLAG_DELETED))
                 return false;
-            Interlocked.Increment(ref LocalItems);
+            if (Interlocked.Increment(ref LocalItems) % 1000 == 0)
+            {
+                CheckPrintConsole();
+            }
+
             var localFilename = f.FullName; // container is needed as well
             if (localFilename.StartsWith(_localPath))
                 localFilename = localFilename.Substring(_localPath.Length + 1);
@@ -181,6 +185,7 @@ namespace BlobBackup
             var nowUtc = DateTime.UtcNow;
             var delTask = Task.Run(() =>
             {
+                Console.WriteLine(" Starting delete files known in local sql but not in azure");
                 _sqlLite.GetAllFileInfos().AsParallel().
                     Where(fi => !ExpectedLocalFiles.Contains(fi.LocalName)).
                     ForAll(fileInfo =>
@@ -200,6 +205,7 @@ namespace BlobBackup
                 });
                 CheckPrintConsole(true);
                 Console.WriteLine(" Delete files known in local sql but not in azure done");
+                Console.WriteLine(" Starting delete existing local files not in azure");
 
                 // scan for deleted files by checking if we have a file locally that we did not find remotely
                 // load list of local files
