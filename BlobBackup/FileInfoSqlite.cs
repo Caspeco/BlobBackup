@@ -4,6 +4,7 @@ using System.Data.SQLite;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace BlobBackup
@@ -11,7 +12,7 @@ namespace BlobBackup
     public class FileInfoSqlite : IDisposable
     {
         private readonly string _sqlLitePath;
-        private readonly object dbConnectionLock = new object();
+        private ReaderWriterLockSlim _readerWriterLock = new ReaderWriterLockSlim();
         private SQLiteConnection dbConnection;
 
         private const string SQL_TABLENAME = "files";
@@ -25,7 +26,7 @@ namespace BlobBackup
             var sqlFileMissing = !File.Exists(sqlFile);
             if (sqlFileMissing) SQLiteConnection.CreateFile(sqlFile);
 
-            dbConnection = new SQLiteConnection($"Data Source={sqlFile};Version=3;");
+            dbConnection = new SQLiteConnection($"Data Source={sqlFile};Version=3;cache=shared;Pooling=True");
             dbConnection.Open();
 
             // note that column types are specified for clearity rather than what SQLite uses internally
@@ -39,6 +40,8 @@ namespace BlobBackup
                 " LastDownloadedTime DATETIME NULL," +
                 " DeleteDetectedTime DATETIME NULL" +
                 ");");
+
+            ExecuteNonQuery("PRAGMA read_uncommitted = true"); // speed up when shared, internally sqlite won't use mutex locks
         }
 
         private SQLiteCommand GetCmd(string sql, object[] parameters)
@@ -60,18 +63,33 @@ namespace BlobBackup
         /// <remarks>This uses locks internally so should be safe to call</remarks>
         private int ExecuteNonQuery(string sql, params object[] parameters)
         {
-            lock (dbConnectionLock)
+            try
             {
+                _readerWriterLock.EnterWriteLock();
+
                 using (var cmd = GetCmd(sql, parameters))
                     return cmd.ExecuteNonQuery();
+            }
+            finally
+            {
+                _readerWriterLock.ExitWriteLock();
             }
         }
 
         /// <remarks>MUST be locked from outside</remarks>
         private SQLiteDataReader ExecuteReader(string sql, params object[] parameters)
         {
-            using (var cmd = GetCmd(sql, parameters))
-                return cmd.ExecuteReader();
+            try
+            {
+                _readerWriterLock.EnterReadLock();
+
+                using (var cmd = GetCmd(sql, parameters))
+                    return cmd.ExecuteReader();
+            }
+            finally
+            {
+                _readerWriterLock.ExitReadLock();
+            }
         }
 
         private static DateTime? GetDateTime(object value)
@@ -106,14 +124,11 @@ namespace BlobBackup
 
         internal FileInfo GetFileInfo(ILocalFileInfo lfi, string LocalName = null)
         {
-            lock (dbConnectionLock)
+            using (var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE LocalName=@1", LocalName))
             {
-                using (var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE LocalName=@1", LocalName))
+                if (reader.Read())
                 {
-                    if (reader.Read())
-                    {
-                        return new FileInfo(this, lfi, reader);
-                    }
+                    return new FileInfo(this, lfi, reader);
                 }
             }
             return null;
@@ -121,14 +136,11 @@ namespace BlobBackup
 
         internal IEnumerable<FileInfo> GetAllFileInfos()
         {
-            lock (dbConnectionLock)
+            using (var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE DeleteDetectedTime IS NULL"))
             {
-                using (var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE DeleteDetectedTime IS NULL"))
+                while (reader.Read())
                 {
-                    while (reader.Read())
-                    {
-                        yield return new FileInfo(this, null, reader);
-                    }
+                    yield return new FileInfo(this, null, reader);
                 }
             }
         }
