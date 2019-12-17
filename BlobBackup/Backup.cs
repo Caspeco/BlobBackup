@@ -207,17 +207,19 @@ namespace BlobBackup
         {
             var utcNow = DateTime.UtcNow;
 
-            char[] jChars;
-            lock (JobCharsLock)
-            {
-                jChars = JobChars.ToArray();
-                if (jChars.Length > 0 && LastConsoleWrite < utcNow.AddSeconds(-10))
+            char[] jChars = {};
+            if (JobChars.Count != 0)
+                lock (JobCharsLock)
                 {
-                    // don't spam console to much, here we print the last Job item we dealt with
-                    JobChars.RemoveWhere(jChars.Contains);
-                    LastConsoleWrite = utcNow;
-                    Console.Write(string.Join(string.Empty, jChars));
+                    jChars = JobChars.ToArray();
+                    JobChars.Clear();
                 }
+
+            if (jChars.Length > 0 && LastConsoleWrite < utcNow.AddSeconds(-10))
+            {
+                // don't spam console to much, here we print the last Job item we dealt with
+                LastConsoleWrite = utcNow;
+                Console.Write(string.Join(string.Empty, jChars));
             }
 
             if (forceFull || LastConsoleWriteLine < utcNow.AddMinutes(-2))
