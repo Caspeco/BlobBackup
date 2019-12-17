@@ -44,15 +44,12 @@ namespace BlobBackup
             return new BlobItem(blob);
         }
 
-        public static IEnumerable<BlobItem> BlobEnumerator(string containerName, string accountName, string accountKey)
+        public static ParallelQuery<BlobItem> BlobEnumerator(string containerName, string accountName, string accountKey)
         {
             var account = CloudStorageAccount.Parse($"DefaultEndpointsProtocol=https;AccountName={accountName};AccountKey={accountKey};EndpointSuffix=core.windows.net");
             var client = account.CreateCloudBlobClient();
             var container = client.GetContainerReference(containerName);
-            foreach (IListBlobItem blobItem in container.ListBlobs(null, true, BlobListingDetails.None))
-            {
-                yield return GetBlobItem(blobItem);
-            }
+            return container.ListBlobs(null, true, BlobListingDetails.None).AsParallel().Select(GetBlobItem);
         }
     }
 }

@@ -32,6 +32,20 @@ namespace BlobBackup
             return MainAsync(args).GetAwaiter().GetResult();
         }
 
+        internal static void PrintStats(Stopwatch sw, Backup job)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Elapsed time {sw.Elapsed.ToString()}");
+            Console.WriteLine($" {job.TotalItems} remote items scanned, total size {FormatSize(job.TotalSize)} and found:");
+            Console.WriteLine($" {job.NewItems} new files. Total size {FormatSize(job.NewItemsSize)}");
+            Console.WriteLine($" {job.ModifiedItems} modified files. Total size {FormatSize(job.ModifiedItemsSize)}");
+            Console.WriteLine($" {job.DownloadedItems} downloaded files. Total size {FormatSize(job.DownloadedSize)}");
+            Console.WriteLine($" {job.UpToDateItems} files up to date");
+            Console.WriteLine($" {job.IgnoredItems} ignored items");
+            Console.WriteLine($" {job.LocalItems} local items");
+            Console.WriteLine($" {job.DeletedItems} local files deleted (or moved)");
+        }
+
         public static async Task<int> MainAsync(string[] args)
         {
             var options = new CommandOptions();
@@ -46,25 +60,27 @@ namespace BlobBackup
             Console.WriteLine("Scanning and processing remote items ");
             var sw = Stopwatch.StartNew();
 
-            var prepTask = Task.Run(() => job.PrepareJob(options.AccountName, options.AccountKey));
-            job.AddTasks(prepTask);
-            var processTask = job.ProcessJob(options.Parallel);
-            await prepTask;
+            try
+            {
+                var prepTask = Task.Run(() => job.PrepareJob(options.AccountName, options.AccountKey));
+                job.AddTasks(prepTask);
+                var processTask = job.ProcessJob(options.Parallel);
+                await prepTask;
 
-            Console.WriteLine();
-            Console.WriteLine($"Scanned {job.ScannedItems} remote items and found:");
-            Console.WriteLine($"{job.NewItems} new files. Total size {FormatSize(job.NewItemsSize)}.");
-            Console.WriteLine($"{job.ModifiedItems} modified files. Total size {FormatSize(job.ModifiedItemsSize)}.");
-            Console.WriteLine($"{job.UpToDateItems} files up to date.");
-            Console.WriteLine($"{job.IgnoredItems} ignored items.");
-            Console.Write("Still working ...");
-            job.CheckPrintConsole(true);
+                PrintStats(sw, job);
+                Console.WriteLine("Still working ...");
+                job.CheckPrintConsole(true);
 
-            await processTask;
-            sw.Stop();
-            Console.WriteLine();
-            Console.Write($"{job.DeletedItems} files deleted.");
-            job.CheckPrintConsole(true);
+                await processTask;
+                sw.Stop();
+                PrintStats(sw, job);
+                job.CheckPrintConsole(true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Something did a bobo {ex.ToString()}");
+                job.CheckPrintConsole(true);
+            }
 
             Console.WriteLine();
             Console.WriteLine($"Done in {sw.Elapsed.ToString()}");

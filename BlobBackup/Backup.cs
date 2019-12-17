@@ -14,11 +14,15 @@ namespace BlobBackup
         private readonly string _localPath;
         private readonly string _containerName;
 
-        public int ScannedItems = 0;
+        public int TotalItems = 0;
+        public long TotalSize = 0;
         public int IgnoredItems = 0;
         public int UpToDateItems = 0;
         public int NewItems = 0;
         public int ModifiedItems = 0;
+        public int DownloadedItems = 0;
+        public long DownloadedSize = 0;
+        public int LocalItems = 0;
         public int DeletedItems = 0;
         public long NewItemsSize = 0;
         public long ModifiedItemsSize = 0;
@@ -63,7 +67,9 @@ namespace BlobBackup
         internal async Task WaitTaskAndClean()
         {
             var taskSet = GetTasks();
-            var finishedTask = taskSet.Length > 0 ? await Task.WhenAny(taskSet) : null;
+            if (taskSet.Length == 0)
+                return;
+            var finishedTask = await Task.WhenAny(taskSet);
             lock (_tasksListLock)
             {
                 _tasks.Remove(finishedTask);
@@ -79,117 +85,138 @@ namespace BlobBackup
                 .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly).AsParallel());
         }
 
+        private bool DoLocalFileDelete(FileSystemInfo f)
+        {
+            if (f.Name.Contains(FLAG_MODIFIED) || f.Name.Contains(FLAG_DELETED))
+                return false;
+            Interlocked.Increment(ref LocalItems);
+            var localFilename = f.FullName; // container is needed as well
+            if (localFilename.StartsWith(_localPath))
+                localFilename = localFilename.Substring(_localPath.Length + 1);
+            return !ExpectedLocalFiles.Contains(localFilename);
+    }
+
+        private void AddDownloaded(long size)
+        {
+            Interlocked.Increment(ref DownloadedItems);
+            Interlocked.Add(ref DownloadedSize, size);
+        }
+
+        private BlobJob GetBlobJob(BlobItem blob)
+        {
+            var itemCount = Interlocked.Increment(ref TotalItems);
+            if (itemCount % 5000 == 0)
+            {
+                // set progress JobChar for next console update
+                AddJobChar('.');
+                CheckPrintConsole();
+            }
+
+            if (blob == null)
+            {
+                IgnoredItems++;
+                return null;
+            }
+
+            Interlocked.Add(ref TotalSize, blob.Size);
+            var localFileName = blob.GetLocalFileName();
+            var bJob = new BlobJob(blob, Path.Combine(_localPath, localFileName));
+            ExpectedLocalFiles.Add(localFileName);
+
+            bJob.FileInfo = _sqlLite.GetFileInfo(blob, bJob.LocalFilePath);
+            bJob.AddDownloaded = AddDownloaded;
+
+            return bJob;
+        }
+
         public Backup PrepareJob(string accountName, string accountKey)
         {
             var localContainerPath = Path.Combine(_localPath, _containerName);
             Directory.CreateDirectory(localContainerPath);
             var localDir = new DirectoryInfo(localContainerPath);
 
-            // load list of local files
-            // this might take a minute or 2 if many files, since we wait for first yielded item before continueing
-            var localFileList = EnumerateFilesParallel(localDir).
-                    Where(f => !f.Name.Contains(FLAG_MODIFIED) && !f.Name.Contains(FLAG_DELETED));
-
             try
             {
                 _sqlLite.BeginTransaction();
-                foreach (var blob in BlobItem.BlobEnumerator(_containerName, accountName, accountKey))
+                BlobItem.BlobEnumerator(_containerName, accountName, accountKey).Select(GetBlobJob).Where(j => j != null).ForAll(bJob =>
                 {
-                    ScannedItems++;
+                    var blob = bJob.Blob;
+                    var file = bJob.FileInfo;
                     try
                     {
-                        if (ScannedItems % 10000 == 0)
-                        {
-                            // set progress JobChar for next console update
-                            AddJobChar('.');
-                            CheckPrintConsole();
-                        }
-
-                        if (blob == null)
-                        {
-                            IgnoredItems++;
-                            continue;
-                        }
-
-                        var localFileName = blob.GetLocalFileName();
-                        var bJob = new BlobJob(blob, Path.Combine(_localPath, localFileName));
-                        ExpectedLocalFiles.Add(localFileName);
-
-                        ILocalFileInfo file = _sqlLite.GetFileInfo(blob, bJob.LocalFilePath);
-                        bJob.FileInfo = file;
                         if (!file.Exists)
                         {
                             bJob.NeedsJob = JobType.New;
                             BlobJobQueue.AddDone(bJob);
-                            NewItems++;
-                            NewItemsSize += blob.Size;
+                            Interlocked.Increment(ref NewItems);
+                            Interlocked.Add(ref NewItemsSize, blob.Size);
                         }
-                        else if (file.Size != blob.Size || file.LastWriteTimeUtc < blob.LastModifiedUtc.UtcDateTime ||
+                        else if (file.Size != blob.Size || file.LastWriteTimeUtc != blob.LastModifiedUtc.UtcDateTime ||
                             (file.MD5 != null && !string.IsNullOrEmpty(blob.MD5) && file.MD5 != blob.MD5))
                         {
                             bJob.NeedsJob = JobType.Modified;
                             BlobJobQueue.AddDone(bJob);
-                            ModifiedItems++;
-                            ModifiedItemsSize += blob.Size;
+                            Interlocked.Increment(ref ModifiedItems);
+                            Interlocked.Add(ref ModifiedItemsSize, blob.Size);
                         }
                         else
                         {
-                            UpToDateItems++;
+                            Interlocked.Increment(ref UpToDateItems);
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{ScannedItems}. Ex message:" + ex.Message);
+                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
                     }
-                }
+                });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{ScannedItems}: " + ex.Message);
+                Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{TotalItems}: " + ex.Message);
             }
             _sqlLite.EndTransaction();
             CheckPrintConsole(true);
             Console.WriteLine(" Fetch done");
 
             var nowUtc = DateTime.UtcNow;
-            var fileDelTask = Task.Run(async () =>
+            var delTask = Task.Run(() =>
             {
-                // scan for deleted files by checking if we have a file locally that we did not find remotely
-                localFileList.ForAll(file =>
+                _sqlLite.GetAllFileInfos().AsParallel().
+                    Where(fi => !ExpectedLocalFiles.Contains(fi.LocalName)).
+                    ForAll(fileInfo =>
                 {
-                    var localFilename = file.FullName; // container is needed as well
-                    if (localFilename.StartsWith(_localPath)) localFilename = localFilename.Substring(_localPath.Length + 1);
-                    if (ExpectedLocalFiles.Contains(localFilename))
-                        return;
+                    AddJobChar('d');
+                    fileInfo.DeleteDetectedTime = nowUtc;
+                    fileInfo.UpdateDb();
+                    string fileName = Path.Combine(_localPath, fileInfo.LocalName);
+                    var fi = new FileInfo(fileName);
+
+                    var newName = fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
+                    if (fi.Exists)
+                        fi.MoveTo(newName);
+                    else
+                        File.Create(newName + ".empty").Close(); // creates dummy file to mark as deleted
+                    Interlocked.Increment(ref DeletedItems);
+                });
+                CheckPrintConsole(true);
+                Console.WriteLine(" Delete files known in local sql but not in azure done");
+
+                // scan for deleted files by checking if we have a file locally that we did not find remotely
+                // load list of local files
+                // this might take a minute or 2 if many files, since we wait for first yielded item before continuing
+                // done after sql Loop, since that should "remove" them already
+                EnumerateFilesParallel(localDir).
+                    Where(DoLocalFileDelete).
+                    ForAll(fi =>
+                {
                     AddJobChar('D');
-                    string fileName = Path.Combine(_localPath, localFilename);
-                    file.MoveTo(fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                    fi.MoveTo(fi.FullName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                     Interlocked.Increment(ref DeletedItems);
                 });
                 CheckPrintConsole(true);
                 Console.WriteLine(" Delete existing local files not in azure done");
             });
-
-            var sqlDelTask = Task.Run(() =>
-            {
-                foreach (var fileInfo in _sqlLite.GetAllFileInfos().
-                    AsParallel().Where(fi => !ExpectedLocalFiles.Contains(fi.LocalName)))
-                {
-                    AddJobChar('d');
-                    fileInfo.DeleteDetectedTime = nowUtc;
-                    string fileName = Path.Combine(_localPath, fileInfo.LocalName);
-
-                    var newName = fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
-                    if (File.Exists(fileName))
-                        File.Move(fileName, newName);
-                    else
-                        File.Create(newName + ".empty"); // creates dummy file to mark as deleted
-                    Interlocked.Increment(ref DeletedItems);
-                }
-                CheckPrintConsole(true);
-                Console.WriteLine(" Delete files known in local sql but not in azure done");
-            });
-            AddTasks(fileDelTask, sqlDelTask);
+            AddTasks(delTask);
             BlobJobQueue.RunnerDone();
 
             return this;
@@ -222,11 +249,11 @@ namespace BlobBackup
                 Console.Write(string.Join(string.Empty, jChars));
             }
 
-            if (forceFull || LastConsoleWriteLine < utcNow.AddMinutes(-2))
+            if (forceFull || LastConsoleWriteLine < utcNow.AddMinutes(-0.5))
             {
                 LastConsoleWriteLine = utcNow;
                 // flushes every 2 minutes
-                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {ScannedItems} scanned, {TaskCount} tasks, {BlobJobQueue.QueueCount} waiting jobs");
+                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {TotalItems} scanned, {TaskCount} tasks, {BlobJobQueue.QueueCount} waiting jobs");
                 Console.Out.Flush();
                 return true;
             }
@@ -252,6 +279,7 @@ namespace BlobBackup
                 await Task.WhenAll(GetTasks());
                 await WaitTaskAndClean();
             }
+            CheckPrintConsole(true);
             _sqlLite.Dispose();
             _sqlLite = null;
         }
@@ -268,6 +296,7 @@ namespace BlobBackup
             internal readonly BlobItem Blob;
             internal readonly string LocalFilePath;
             internal ILocalFileInfo FileInfo;
+            internal Action<long> AddDownloaded;
             internal FileInfoSqlite.FileInfo SqlFileInfo => FileInfo as FileInfoSqlite.FileInfo;
             internal JobType NeedsJob = JobType.None;
 
@@ -339,6 +368,7 @@ namespace BlobBackup
                     }
 
                     await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
+                    AddDownloaded(Blob.Size);
                     if (lfi == null) lfi = new LocalFileInfoDisk(LocalFilePath);
                     if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
                         File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
