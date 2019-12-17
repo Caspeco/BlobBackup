@@ -194,7 +194,7 @@ namespace BlobBackup
                     var newName = fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
                     if (fi.Exists)
                         fi.MoveTo(newName);
-                    else
+                    else if (Directory.Exists(Path.GetDirectoryName(newName)))
                         File.Create(newName + ".empty").Close(); // creates dummy file to mark as deleted
                     Interlocked.Increment(ref DeletedItems);
                 });
