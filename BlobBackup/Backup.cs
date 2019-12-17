@@ -148,8 +148,8 @@ namespace BlobBackup
                 Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{ScannedItems}: " + ex.Message);
             }
             _sqlLite.EndTransaction();
-            BlobJobQueue.RunnerDone();
             CheckPrintConsole(true);
+            Console.WriteLine(" Fetch done");
 
             var nowUtc = DateTime.UtcNow;
             var fileDelTask = Task.Run(async () =>
@@ -157,14 +157,17 @@ namespace BlobBackup
                 // scan for deleted files by checking if we have a file locally that we did not find remotely
                 localFileList.ForAll(file =>
                 {
-                    var localFilename = file.Name;
+                    var localFilename = file.FullName; // container is needed as well
                     if (localFilename.StartsWith(_localPath)) localFilename = localFilename.Substring(_localPath.Length + 1);
                     if (ExpectedLocalFiles.Contains(localFilename))
                         return;
                     AddJobChar('D');
-                    file.MoveTo(file.Name + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                    string fileName = Path.Combine(_localPath, localFilename);
+                    file.MoveTo(fileName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
                     Interlocked.Increment(ref DeletedItems);
                 });
+                CheckPrintConsole(true);
+                Console.WriteLine(" Delete existing local files not in azure done");
             });
 
             var sqlDelTask = Task.Run(() =>
@@ -183,8 +186,11 @@ namespace BlobBackup
                         File.Create(newName + ".empty"); // creates dummy file to mark as deleted
                     Interlocked.Increment(ref DeletedItems);
                 }
+                CheckPrintConsole(true);
+                Console.WriteLine(" Delete files known in local sql but not in azure done");
             });
             AddTasks(fileDelTask, sqlDelTask);
+            BlobJobQueue.RunnerDone();
 
             return this;
         }
@@ -346,12 +352,12 @@ namespace BlobBackup
                 {
                     // Swallow 404 exceptions.
                     // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
-                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
+                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());
                 }
                 catch (System.IO.IOException ex)
                 {
                     HasCreatedDirectories.Clear();
-                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.GetType().Name + " " + ex.Message);
+                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());
                 }
                 return false;
             }
