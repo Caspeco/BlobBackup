@@ -139,6 +139,7 @@ namespace BlobBackup
             Directory.CreateDirectory(localContainerPath);
             var localDir = new DirectoryInfo(localContainerPath);
 
+            bool? downloadOk = null;
             try
             {
                 _sqlLite.BeginTransaction();
@@ -155,9 +156,11 @@ namespace BlobBackup
                             Interlocked.Increment(ref NewItems);
                             Interlocked.Add(ref NewItemsSize, blob.Size);
                         }
-                        else if (file.Size != blob.Size || file.LastWriteTimeUtc != blob.LastModifiedUtc.UtcDateTime ||
-                            (file.MD5 != null && !string.IsNullOrEmpty(blob.MD5) && file.MD5 != blob.MD5))
+                        else if (!file.IsSame(blob))
                         {
+                            /*//
+                            Console.WriteLine($"\n** Seen {file.DiffString(blob)} for {bJob.LocalFilePath}");
+                            //*/
                             bJob.NeedsJob = JobType.Modified;
                             BlobJobQueue.AddDone(bJob);
                             Interlocked.Increment(ref ModifiedItems);
@@ -170,12 +173,16 @@ namespace BlobBackup
                     }
                     catch (Exception ex)
                     {
+                        downloadOk = false;
                         Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
                     }
                 });
+                if (downloadOk == null)
+                    downloadOk = true;
             }
             catch (Exception ex)
             {
+                downloadOk = false;
                 Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{TotalItems}: " + ex.Message);
             }
             _sqlLite.EndTransaction();
@@ -185,6 +192,11 @@ namespace BlobBackup
             var nowUtc = DateTime.UtcNow;
             var delTask = Task.Run(() =>
             {
+                if (!downloadOk.HasValue || !downloadOk.Value)
+                {
+                    Console.WriteLine(" Due to exception, no delete check will be done");
+                    return;
+                }
                 Console.WriteLine(" Starting delete files known in local sql but not in azure");
                 _sqlLite.GetAllFileInfos().AsParallel().
                     Where(fi => !ExpectedLocalFiles.Contains(fi.LocalName)).
@@ -320,6 +332,9 @@ namespace BlobBackup
                 if (blob.Size == 0)
                     return true;
 
+                if (blob.MD5 == "1B2M2Y8AsgTpgAmY7PhCfg==" && blob.Size < 1024 * 1024) // md5 same as 0 byte
+                    return true;
+
                 // Ignore files only containing "[]"
                 if (blob.Size == 2 && blob.MD5 == "11FxOYiYfpMxmANj4kGJzg==")
                     return true;
@@ -347,13 +362,19 @@ namespace BlobBackup
                     {
                         AddJobChar('m');
                         lfi = new LocalFileInfoDisk(LocalFilePath);
-                        if (FileInfo.Size == Blob.Size &&
-                            (FileInfo.MD5 != null && !string.IsNullOrEmpty(Blob.MD5) && FileInfo.MD5 == Blob.MD5))
+                        var noDownloadNeeded = 
+                            FileInfo.Size == Blob.Size &&
+                            FileInfo.MD5 == Blob.MD5 &&
+                            (!lfi.Exists || (lfi.Size == Blob.Size && lfi.GetMd5() == Blob.MD5));
+                        /*//
+                        Console.WriteLine($"\n** Handling {FileInfo.DiffString(Blob)} for {LocalFilePath}");
+                        Console.WriteLine($"\n** Handling2 {lfi.DiffString(Blob)} for {LocalFilePath}");
+                        //*/
+                        if (noDownloadNeeded)
                         {
-                            // since size and hash is the same as last, we just ignore this and don't update
+                            // since size and hash is the same as last, we just fix local modification time and update database
                             SqlFileInfo.UpdateDb();
-                            if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
-                                File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
+                            lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
                             return true;
                         }
                         if (lfi.Exists)
@@ -374,12 +395,12 @@ namespace BlobBackup
                     }
 
                     await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
+                    SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
                     AddDownloaded(Blob.Size);
-                    if (lfi == null) lfi = new LocalFileInfoDisk(LocalFilePath);
-                    if (lfi.Exists && lfi.LastWriteTimeUtc != Blob.LastModifiedUtc.UtcDateTime)
-                        File.SetLastWriteTimeUtc(LocalFilePath, Blob.LastModifiedUtc.UtcDateTime);
-                    if (lfi.Exists && string.IsNullOrEmpty(lfi.MD5))
-                        lfi.CalculateMd5();
+                    if (lfi == null)
+                        lfi = new LocalFileInfoDisk(LocalFilePath);
+                    lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
+                    lfi.GetMd5();
                     SqlFileInfo.UpdateFromFileInfo(lfi);
                     SqlFileInfo.UpdateDb();
 
@@ -392,7 +413,7 @@ namespace BlobBackup
                     // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
                     Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());
                 }
-                catch (System.IO.IOException ex)
+                catch (IOException ex)
                 {
                     HasCreatedDirectories.Clear();
                     Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());

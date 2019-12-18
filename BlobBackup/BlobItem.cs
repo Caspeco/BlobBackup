@@ -8,13 +8,19 @@ using System.Threading.Tasks;
 
 namespace BlobBackup
 {
-    public class BlobItem
+    public class BlobItem : ILocalFileInfo
     {
         private readonly CloudBlockBlob Blob;
-        public readonly Uri Uri;
-        public readonly long Size;
-        public readonly string MD5;
-        public readonly DateTimeOffset LastModifiedUtc;
+        public Uri Uri { get; }
+
+        #region ILocalFileInfo
+        public bool Exists => !Blob.IsDeleted;
+        public long Size { get; }
+        public string MD5 { get; }
+        public DateTime LastModifiedTimeUtc => LastModifiedUtc.UtcDateTime;
+        #endregion ILocalFileInfo
+
+        public DateTimeOffset LastModifiedUtc { get; }
         internal Func<string, System.IO.FileMode, Task> DownloadToFileAsync;
 
         private BlobItem(CloudBlockBlob blob)

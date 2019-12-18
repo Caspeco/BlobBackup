@@ -153,6 +153,7 @@ namespace BlobBackup
                 return fi;
 
             // create new instance
+            ((LocalFileInfoDisk)lfi)?.GetMd5();
             fi = new FileInfo(this, lfi, blob);
 
             // make sure we insert item when there is nothing found
@@ -179,7 +180,7 @@ namespace BlobBackup
             public bool Exists => LastDownloadedTime.HasValue;
             public long Size { get; set; }
             public string MD5 { get; set; }
-            public DateTime LastWriteTimeUtc => LastDownloadedTime ?? DateTime.MinValue;
+            public DateTime LastModifiedTimeUtc => LastModifiedTime.ToUniversalTime();
 
             public string LocalName { get; private set; }
             public string RemPath { get; private set; }
@@ -232,7 +233,7 @@ namespace BlobBackup
             {
                 if (fi == null || !fi.Exists)
                     return;
-                LastDownloadedTime = fi.LastWriteTimeUtc;
+                LastModifiedTime = fi.LastModifiedTimeUtc;
                 Size = fi.Size;
                 if (!string.IsNullOrEmpty(fi.MD5))
                     MD5 = fi.MD5;
