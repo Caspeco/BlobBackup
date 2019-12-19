@@ -37,6 +37,7 @@ namespace BlobBackup
         private static readonly object JobCharsLock = new object();
         private static DateTime LastConsoleWrite = DateTime.MinValue;
         private static DateTime LastConsoleWriteLine = DateTime.MinValue;
+        private static DateTime LastConsoleWriteStats = DateTime.MinValue;
 
         private FileInfoSqlite _sqlLite;
 
@@ -270,9 +271,14 @@ namespace BlobBackup
             if (forceFull || LastConsoleWriteLine < utcNow.AddMinutes(-0.5))
             {
                 LastConsoleWriteLine = utcNow;
-                // flushes every 2 minutes
                 Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {TotalItems.Format()} scanned, {TaskCount.Format()} tasks, {BlobJobQueue.QueueCount.Format()} waiting jobs");
+                if (forceFull || LastConsoleWriteStats < utcNow.AddMinutes(-2))
+                {
+                    LastConsoleWriteStats = utcNow;
+                    PrintStats();
+                }
                 Console.Out.Flush();
+
                 return true;
             }
 
