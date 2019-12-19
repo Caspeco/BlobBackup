@@ -9,24 +9,6 @@ namespace BlobBackup
 {
     public class Program
     {
-        private enum FileSizeUnit : byte
-        {
-            B, KB, MB,
-            GB, TB, PB,
-            EB, ZB, YB,
-        }
-
-        public static string FormatSize(double size)
-        {
-            var unit = FileSizeUnit.B;
-            while (size >= 1024 && unit < FileSizeUnit.YB)
-            {
-                size = size / 1024;
-                unit++;
-            }
-            return string.Format("{0:#,##0.##} {1}", size, unit);
-        }
-
         public static int Main(string[] args)
         {
             return MainAsync(args).GetAwaiter().GetResult();
@@ -36,10 +18,10 @@ namespace BlobBackup
         {
             Console.WriteLine();
             Console.WriteLine($"Elapsed time {sw.Elapsed.ToString()}");
-            Console.WriteLine($" {job.TotalItems} remote items scanned, total size {FormatSize(job.TotalSize)} and found:");
-            Console.WriteLine($" {job.NewItems} new files. Total size {FormatSize(job.NewItemsSize)}");
-            Console.WriteLine($" {job.ModifiedItems} modified files. Total size {FormatSize(job.ModifiedItemsSize)}");
-            Console.WriteLine($" {job.DownloadedItems} downloaded files. Total size {FormatSize(job.DownloadedSize)}");
+            Console.WriteLine($" {job.TotalItems} remote items scanned, total size {job.TotalSize.FormatSize()} and found:");
+            Console.WriteLine($" {job.NewItems} new files. Total size {job.NewItemsSize.FormatSize()}");
+            Console.WriteLine($" {job.ModifiedItems} modified files. Total size {job.ModifiedItemsSize.FormatSize()}");
+            Console.WriteLine($" {job.DownloadedItems} downloaded files. Total size {job.DownloadedSize.FormatSize()}");
             Console.WriteLine($" {job.UpToDateItems} files up to date");
             Console.WriteLine($" {job.IgnoredItems} ignored items");
             Console.WriteLine($" {job.LocalItems} local items");

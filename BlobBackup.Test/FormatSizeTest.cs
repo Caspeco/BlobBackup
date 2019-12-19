@@ -19,7 +19,7 @@ namespace BlobBackup.Test
         public void SimpleTest(double size, string expectedString)
         {
             System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
-            var result = Program.FormatSize(size);
+            var result = size.FormatSize();
             Console.WriteLine("Len: " + result.Length + " data: " + result);
             Assert.Equal(expectedString, result);
         }
