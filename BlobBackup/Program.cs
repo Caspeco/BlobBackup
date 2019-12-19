@@ -18,14 +18,7 @@ namespace BlobBackup
         {
             Console.WriteLine();
             Console.WriteLine($"Elapsed time {sw.Elapsed.ToString()}");
-            Console.WriteLine($" {job.TotalItems} remote items scanned, total size {job.TotalSize.FormatSize()} and found:");
-            Console.WriteLine($" {job.NewItems} new files. Total size {job.NewItemsSize.FormatSize()}");
-            Console.WriteLine($" {job.ModifiedItems} modified files. Total size {job.ModifiedItemsSize.FormatSize()}");
-            Console.WriteLine($" {job.DownloadedItems} downloaded files. Total size {job.DownloadedSize.FormatSize()}");
-            Console.WriteLine($" {job.UpToDateItems} files up to date");
-            Console.WriteLine($" {job.IgnoredItems} ignored items");
-            Console.WriteLine($" {job.LocalItems} local items");
-            Console.WriteLine($" {job.DeletedItems} local files deleted (or moved)");
+            job.PrintStats();
         }
 
         public static async Task<int> MainAsync(string[] args)

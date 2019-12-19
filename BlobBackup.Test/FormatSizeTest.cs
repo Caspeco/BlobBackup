@@ -23,5 +23,15 @@ namespace BlobBackup.Test
             Console.WriteLine("Len: " + result.Length + " data: " + result);
             Assert.Equal(expectedString, result);
         }
+
+        [Theory]
+        [InlineData(1234567890, "1 234 567 890")]
+        [InlineData(1, "1")]
+        [InlineData(1000, "1 000")]
+        public void IntFormatTest(int value, string expected)
+        {
+            System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("sv-SE");
+            Assert.Equal(expected, value.Format());
+        }
     }
 }

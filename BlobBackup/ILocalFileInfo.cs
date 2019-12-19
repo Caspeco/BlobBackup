@@ -47,7 +47,7 @@ namespace BlobBackup
 
     public class LocalFileInfoDisk : ILocalFileInfo
     {
-        private readonly System.IO.FileInfo fInfo;
+        internal readonly System.IO.FileInfo fInfo;
 
         public bool Exists => fInfo.Exists;
         public long Size => Exists ? fInfo.Length : -1;

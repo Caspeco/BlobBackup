@@ -271,12 +271,24 @@ namespace BlobBackup
             {
                 LastConsoleWriteLine = utcNow;
                 // flushes every 2 minutes
-                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {TotalItems} scanned, {TaskCount} tasks, {BlobJobQueue.QueueCount} waiting jobs");
+                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {TotalItems.Format()} scanned, {TaskCount.Format()} tasks, {BlobJobQueue.QueueCount.Format()} waiting jobs");
                 Console.Out.Flush();
                 return true;
             }
 
             return jChars.Length > 0;
+        }
+
+        public void PrintStats()
+        {
+            Console.WriteLine($" {TotalItems.Format()} remote items scanned, total size {TotalSize.FormatSize()} and found:");
+            Console.WriteLine($" {NewItems.Format()} new files. Total size {NewItemsSize.FormatSize()}");
+            Console.WriteLine($" {ModifiedItems.Format()} modified files. Total size {ModifiedItemsSize.FormatSize()}");
+            Console.WriteLine($" {DownloadedItems.Format()} downloaded files. Total size {DownloadedSize.FormatSize()}");
+            Console.WriteLine($" {UpToDateItems.Format()} files up to date");
+            Console.WriteLine($" {IgnoredItems.Format()} ignored items");
+            Console.WriteLine($" {LocalItems.Format()} local items");
+            Console.WriteLine($" {DeletedItems.Format()} local files deleted (or moved)");
         }
 
         public async Task ProcessJob(int simultaniousDownloads)
@@ -377,8 +389,28 @@ namespace BlobBackup
                             lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
                             return true;
                         }
+
                         if (lfi.Exists)
-                            File.Move(LocalFilePath, LocalFilePath + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
+                        {
+                            try
+                            {
+                                if (lfi.Size <= 0) // just remove empty files, shouldn't exist
+                                    lfi.fInfo.Delete();
+                                else
+                                {
+                                    var dst = LocalFilePath + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
+                                    if (File.Exists(dst))
+                                    {
+                                        File.Delete(dst);
+                                    }
+                                    lfi.fInfo.MoveTo(dst);
+                                }
+                            }
+                            catch (IOException)
+                            {
+                                // ignore
+                            }
+                        }
                     }
                     else
                     {
@@ -400,7 +432,8 @@ namespace BlobBackup
                     if (lfi == null)
                         lfi = new LocalFileInfoDisk(LocalFilePath);
                     lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
-                    lfi.GetMd5();
+                    if (lfi.GetMd5() != Blob.MD5)
+                        return false; // something went bad, we can try on next run if db isn't updated
                     SqlFileInfo.UpdateFromFileInfo(lfi);
                     SqlFileInfo.UpdateDb();
 

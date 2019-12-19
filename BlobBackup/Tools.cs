@@ -22,5 +22,10 @@ namespace BlobBackup
         }
 
         public static string FormatSize(this long size) => FormatSize((double) size);
+
+        public static string Format(this int value)
+        {
+            return $"{value:#,##0}";
+        }
     }
 }
