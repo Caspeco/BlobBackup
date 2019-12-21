@@ -126,6 +126,8 @@ namespace BlobBackup
             Interlocked.Add(ref TotalSize, blob.Size);
             var localFileName = blob.GetLocalFileName();
             var bJob = new BlobJob(blob, Path.Combine(_localPath, localFileName));
+            if (localFileName == null)
+                throw new NullReferenceException();
             ExpectedLocalFiles.Add(localFileName);
 
             bJob.FileInfo = _sqlLite.GetFileInfo(blob, bJob.LocalFilePath);
@@ -153,13 +155,15 @@ namespace BlobBackup
                         if (!file.Exists)
                         {
                             bJob.NeedsJob = JobType.New;
-                            BlobJobQueue.AddDone(bJob);
+                            bJob.SqlFileInfo.UpdateFromAzure(blob);
+                            if (!BlobJob.WellKnownBlob(blob) || !bJob.HandleWellKnownBlob())
+                                BlobJobQueue.AddDone(bJob);
                             Interlocked.Increment(ref NewItems);
                             Interlocked.Add(ref NewItemsSize, blob.Size);
                         }
                         else if (!file.IsSame(blob))
                         {
-                            /*//
+                            //*//
                             Console.WriteLine($"\n** Seen {file.DiffString(blob)} for {bJob.LocalFilePath}");
                             //*/
                             bJob.NeedsJob = JobType.Modified;
@@ -186,9 +190,12 @@ namespace BlobBackup
                 downloadOk = false;
                 Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{TotalItems}: " + ex.Message);
             }
-            _sqlLite.EndTransaction();
-            CheckPrintConsole(true);
-            Console.WriteLine(" Fetch done");
+            finally
+            {
+                _sqlLite.EndTransaction();
+                CheckPrintConsole(true);
+                Console.WriteLine(" Fetch done");
+            }
 
             var nowUtc = DateTime.UtcNow;
             var delTask = Task.Run(() =>
@@ -299,25 +306,33 @@ namespace BlobBackup
 
         public async Task ProcessJob(int simultaniousDownloads)
         {
-            foreach (var item in BlobJobQueue.GetDoneEnumerable())
+            try
             {
-                if (TaskCount >= simultaniousDownloads)
+                foreach (var item in BlobJobQueue.GetDoneEnumerable())
                 {
-                    CheckPrintConsole();
+                    if (TaskCount >= simultaniousDownloads)
+                    {
+                        CheckPrintConsole();
+                        await WaitTaskAndClean();
+                    }
+
+                    AddTasks(Task.Run(item.DoJob));
+                }
+
+                CheckPrintConsole(true);
+
+                while (TaskCount > 0)
+                {
+                    await Task.WhenAll(GetTasks());
                     await WaitTaskAndClean();
                 }
-                AddTasks(Task.Run(item.DoJob));
             }
-            CheckPrintConsole(true);
-
-            while (TaskCount > 0)
+            finally
             {
-                await Task.WhenAll(GetTasks());
-                await WaitTaskAndClean();
+                _sqlLite.Dispose();
+                _sqlLite = null;
+                CheckPrintConsole(true);
             }
-            CheckPrintConsole(true);
-            _sqlLite.Dispose();
-            _sqlLite = null;
         }
 
         internal enum JobType
@@ -344,7 +359,7 @@ namespace BlobBackup
                 LocalFilePath = localFilePath;
             }
 
-            private static bool WellKnownBlob(BlobItem blob)
+            public static bool WellKnownBlob(ILocalFileInfo blob)
             {
                 // Ignore empty files
                 if (blob.Size == 0)
@@ -360,11 +375,21 @@ namespace BlobBackup
                 return false;
             }
 
+            public bool HandleWellKnownBlob()
+            {
+                if (!WellKnownBlob(Blob))
+                    return false;
+                // no real download of these files
+                SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
+                SqlFileInfo.UpdateDb();
+                NeedsJob = JobType.None;
+                return true;
+            }
+
             public async Task<bool> DoJob()
             {
                 try
                 {
-                    SqlFileInfo.UpdateFromAzure(Blob);
                     LocalFileInfoDisk lfi = null;
                     if (NeedsJob == JobType.New)
                     {
@@ -423,23 +448,21 @@ namespace BlobBackup
                         return true;
                     }
 
-                    if (WellKnownBlob(Blob))
-                    {
-                        // no real download of these files
-                        SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
-                        SqlFileInfo.UpdateDb();
-                        NeedsJob = JobType.None;
+                    if (HandleWellKnownBlob())
                         return true;
-                    }
 
+                    SqlFileInfo.UpdateFromAzure(Blob);
                     await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
                     SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
                     AddDownloaded(Blob.Size);
-                    if (lfi == null)
-                        lfi = new LocalFileInfoDisk(LocalFilePath);
+                    // we always want a new file item after download
+                    lfi = new LocalFileInfoDisk(LocalFilePath);
                     lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
-                    if (lfi.GetMd5() != Blob.MD5)
+
+                    // maybe something changed from orignal data
+                    if (lfi.Size != Blob.Size || lfi.GetMd5() != Blob.MD5)
                         return false; // something went bad, we can try on next run if db isn't updated
+
                     SqlFileInfo.UpdateFromFileInfo(lfi);
                     SqlFileInfo.UpdateDb();
 
