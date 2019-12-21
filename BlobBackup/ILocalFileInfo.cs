@@ -58,8 +58,6 @@ namespace BlobBackup
         public LocalFileInfoDisk(string fileName)
         {
             fInfo = new System.IO.FileInfo(fileName);
-            if (Exists && fInfo.Length == 0)
-                fInfo.Refresh();
         }
 
         /// <summary>
