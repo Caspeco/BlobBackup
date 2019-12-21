@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,13 +18,15 @@ namespace BlobBackup
         public int IgnoredItems = 0;
         public int UpToDateItems = 0;
         public int NewItems = 0;
+        public long NewItemsSize = 0;
         public int ModifiedItems = 0;
+        public long ModifiedItemsSize = 0;
         public int DownloadedItems = 0;
         public long DownloadedSize = 0;
+        public int ExceptionCount = 0;
+        public int FailedDownloads = 0;
         public int LocalItems = 0;
         public int DeletedItems = 0;
-        public long NewItemsSize = 0;
-        public long ModifiedItemsSize = 0;
 
         private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
         private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
@@ -119,13 +120,13 @@ namespace BlobBackup
 
             if (blob == null)
             {
-                IgnoredItems++;
+                Interlocked.Increment(ref IgnoredItems);
                 return null;
             }
 
             Interlocked.Add(ref TotalSize, blob.Size);
             var localFileName = blob.GetLocalFileName();
-            var bJob = new BlobJob(blob, Path.Combine(_localPath, localFileName));
+            var bJob = new BlobJob(this, blob, Path.Combine(_localPath, localFileName));
             if (localFileName == null)
                 throw new NullReferenceException();
             ExpectedLocalFiles.Add(localFileName);
@@ -156,15 +157,22 @@ namespace BlobBackup
                         {
                             bJob.NeedsJob = JobType.New;
                             bJob.SqlFileInfo.UpdateFromAzure(blob);
-                            if (!BlobJob.WellKnownBlob(blob) || !bJob.HandleWellKnownBlob())
+
+                            if (BlobJob.WellKnownBlob(blob) && bJob.HandleWellKnownBlob())
+                                Interlocked.Increment(ref IgnoredItems);
+                            else
                                 BlobJobQueue.AddDone(bJob);
+
                             Interlocked.Increment(ref NewItems);
                             Interlocked.Add(ref NewItemsSize, blob.Size);
                         }
                         else if (!file.IsSame(blob))
                         {
-                            //*//
-                            Console.WriteLine($"\n** Seen {file.DiffString(blob)} for {bJob.LocalFilePath}");
+                            /*//
+                            if (file.Size != blob.Size ||
+                                file.MD5 != blob.MD5 ||
+                                file.LastModifiedTimeUtc == blob.LastModifiedTimeUtc) // debug stuff
+                                Console.WriteLine($"\n** Seen {file.DiffString(blob)} for {bJob.LocalFilePath}");
                             //*/
                             bJob.NeedsJob = JobType.Modified;
                             BlobJobQueue.AddDone(bJob);
@@ -179,6 +187,7 @@ namespace BlobBackup
                     catch (Exception ex)
                     {
                         downloadOk = false;
+                        Interlocked.Increment(ref ExceptionCount);
                         Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
                     }
                 });
@@ -188,6 +197,7 @@ namespace BlobBackup
             catch (Exception ex)
             {
                 downloadOk = false;
+                Interlocked.Increment(ref ExceptionCount);
                 Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{TotalItems}: " + ex.Message);
             }
             finally
@@ -299,7 +309,7 @@ namespace BlobBackup
             Console.WriteLine($" {ModifiedItems.Format()} modified files. Total size {ModifiedItemsSize.FormatSize()}");
             Console.WriteLine($" {DownloadedItems.Format()} downloaded files. Total size {DownloadedSize.FormatSize()}");
             Console.WriteLine($" {UpToDateItems.Format()} files up to date");
-            Console.WriteLine($" {IgnoredItems.Format()} ignored items");
+            Console.WriteLine($" {IgnoredItems.Format()} ignored items, {FailedDownloads.Format()} failed, {ExceptionCount.Format()} exceptions");
             Console.WriteLine($" {LocalItems.Format()} local items");
             Console.WriteLine($" {DeletedItems.Format()} local files deleted (or moved)");
         }
@@ -344,6 +354,7 @@ namespace BlobBackup
 
         public class BlobJob
         {
+            internal readonly Backup Bak; // TODO fix
             internal readonly BlobItem Blob;
             internal readonly string LocalFilePath;
             internal ILocalFileInfo FileInfo;
@@ -353,8 +364,9 @@ namespace BlobBackup
 
             private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
 
-            public BlobJob(BlobItem blob, string localFilePath)
+            public BlobJob(Backup bakParent, BlobItem blob, string localFilePath)
             {
+                Bak = bakParent;
                 Blob = blob;
                 LocalFilePath = localFilePath;
             }
@@ -405,7 +417,7 @@ namespace BlobBackup
                     {
                         AddJobChar('m');
                         lfi = new LocalFileInfoDisk(LocalFilePath);
-                        var noDownloadNeeded = 
+                        var noDownloadNeeded =
                             FileInfo.Size == Blob.Size &&
                             FileInfo.MD5 == Blob.MD5 &&
                             (!lfi.Exists || (lfi.Size == Blob.Size && lfi.GetMd5() == Blob.MD5));
@@ -434,11 +446,13 @@ namespace BlobBackup
                                     {
                                         File.Delete(dst);
                                     }
+
                                     lfi.fInfo.MoveTo(dst);
                                 }
                             }
                             catch (IOException)
                             {
+                                Interlocked.Increment(ref Bak.ExceptionCount);
                                 // ignore
                             }
                         }
@@ -461,7 +475,10 @@ namespace BlobBackup
 
                     // maybe something changed from orignal data
                     if (lfi.Size != Blob.Size || lfi.GetMd5() != Blob.MD5)
+                    {
+                        Interlocked.Increment(ref Bak.FailedDownloads);
                         return false; // something went bad, we can try on next run if db isn't updated
+                    }
 
                     SqlFileInfo.UpdateFromFileInfo(lfi);
                     SqlFileInfo.UpdateDb();
@@ -471,6 +488,7 @@ namespace BlobBackup
                 }
                 catch (StorageException ex)
                 {
+                    Interlocked.Increment(ref Bak.ExceptionCount);
                     // Swallow 404 exceptions.
                     // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
                     Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());
@@ -478,6 +496,7 @@ namespace BlobBackup
                 catch (IOException ex)
                 {
                     HasCreatedDirectories.Clear();
+                    Interlocked.Increment(ref Bak.ExceptionCount);
                     Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());
                 }
                 return false;
