@@ -28,10 +28,11 @@ namespace BlobBackup
         public int LocalItems = 0;
         public int DeletedItems = 0;
 
+        private readonly object ExpectedLocalFilesLock = new object();
         private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
         private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
         private readonly object _tasksListLock = new object();
-        private List<Task> _tasks = new List<Task>();
+        private readonly List<Task> _tasks = new List<Task>();
         public int TaskCount => _tasks.Count;
 
         private static readonly HashSet<char> JobChars = new HashSet<char>();
@@ -129,7 +130,8 @@ namespace BlobBackup
             var bJob = new BlobJob(this, blob, Path.Combine(_localPath, localFileName));
             if (localFileName == null)
                 throw new NullReferenceException();
-            ExpectedLocalFiles.Add(localFileName);
+            lock (ExpectedLocalFilesLock)
+                ExpectedLocalFiles.Add(localFileName);
 
             bJob.FileInfo = _sqlLite.GetFileInfo(blob, bJob.LocalFilePath);
             bJob.AddDownloaded = AddDownloaded;
@@ -158,7 +160,7 @@ namespace BlobBackup
                             bJob.NeedsJob = JobType.New;
                             bJob.SqlFileInfo.UpdateFromAzure(blob);
 
-                            if (BlobJob.WellKnownBlob(blob) && bJob.HandleWellKnownBlob())
+                            if (bJob.HandleWellKnownBlob())
                                 Interlocked.Increment(ref IgnoredItems);
                             else
                                 BlobJobQueue.AddDone(bJob);
