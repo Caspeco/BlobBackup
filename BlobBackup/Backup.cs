@@ -155,7 +155,7 @@ namespace BlobBackup
                     var file = bJob.FileInfo;
                     try
                     {
-                        if (!file.Exists)
+                        if (!file.Exists || bJob.ForceDownloadMissing())
                         {
                             bJob.NeedsJob = JobType.New;
                             bJob.SqlFileInfo.UpdateFromAzure(blob);
@@ -371,6 +371,27 @@ namespace BlobBackup
                 Bak = bakParent;
                 Blob = blob;
                 LocalFilePath = localFilePath;
+            }
+
+            private static DateTime ForceExistsFrom = DateTime.Now.AddDays(-30);
+            public bool ForceDownloadMissing()
+            {
+                if (FileInfo.Size != Blob.Size || FileInfo.MD5 != Blob.MD5)
+                    return false; // if file changed, expect it to be downloaded by modification instad
+
+                var lfi = SqlFileInfo?.SrcFileInfo;
+                if (!(lfi is LocalFileInfoDisk))
+                    return false;
+
+                // if newer than a month, and no file exits, force it
+                if (Blob.LastModifiedTimeUtc > ForceExistsFrom &&
+                    !lfi.Exists && !WellKnownBlob(Blob))
+                {
+                    Console.WriteLine($"\n** Force Download expected existing file {Blob.ToString()}");
+                    return true;
+                }
+
+                return false;
             }
 
             public static bool WellKnownBlob(ILocalFileInfo blob)
