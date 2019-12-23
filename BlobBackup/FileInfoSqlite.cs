@@ -176,6 +176,7 @@ namespace BlobBackup
         public class FileInfo : ILocalFileInfo
         {
             private readonly FileInfoSqlite _sqlLite;
+            public readonly ILocalFileInfo SrcFileInfo;
 
             public bool Exists => LastDownloadedTime.HasValue;
             public long Size { get; set; }
@@ -196,6 +197,7 @@ namespace BlobBackup
             internal FileInfo(FileInfoSqlite sqlite, ILocalFileInfo fi, SQLiteDataReader reader)
                 : this(sqlite)
             {
+                SrcFileInfo = fi;
                 LocalName = Convert.ToString(reader["LocalName"]);
                 RemPath = Convert.ToString(reader["RemPath"]);
                 LastModifiedTime = Convert.ToDateTime(reader["LastModifiedTime"]);
@@ -211,6 +213,7 @@ namespace BlobBackup
             private FileInfo(FileInfoSqlite sqlite, BlobItem blob)
                 : this(sqlite)
             {
+                SrcFileInfo = blob;
                 UpdateFromAzure(blob);
             }
 
@@ -226,6 +229,7 @@ namespace BlobBackup
             internal FileInfo(FileInfoSqlite sqlite, ILocalFileInfo fi, BlobItem blob)
                 : this(sqlite, blob)
             {
+                SrcFileInfo = fi;
                 UpdateFromFileInfo(fi);
             }
 
