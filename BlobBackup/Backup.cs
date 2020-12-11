@@ -83,9 +83,9 @@ namespace BlobBackup
         private static ParallelQuery<FileInfo> EnumerateFilesParallel(DirectoryInfo dir)
         {
             return dir.EnumerateDirectories()
-                .AsParallel()
                 .SelectMany(EnumerateFilesParallel)
-                .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly).AsParallel());
+                .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+                .AsParallel();
         }
 
         private bool DoLocalFileDelete(FileSystemInfo f)
@@ -356,7 +356,7 @@ namespace BlobBackup
 
         public class BlobJob
         {
-            internal readonly Backup Bak; // TODO fix
+            internal readonly Backup Bak;
             internal readonly BlobItem Blob;
             internal readonly string LocalFilePath;
             internal ILocalFileInfo FileInfo;

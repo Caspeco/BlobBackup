@@ -70,9 +70,9 @@ namespace ArchiveFilemover
         private static ParallelQuery<FileInfo> EnumerateFilesParallel(DirectoryInfo dir)
         {
             return dir.EnumerateDirectories()
-                .AsParallel()
                 .SelectMany(EnumerateFilesParallel)
-                .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly).AsParallel());
+                .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly))
+                .AsParallel();
         }
 
         private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
