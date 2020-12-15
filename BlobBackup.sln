@@ -6,8 +6,13 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlobBackup", "BlobBackup\BlobBackup.csproj", "{CF2DB6E3-C462-48C5-8209-81395374963B}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BlobBackup.Test", "BlobBackup.Test\BlobBackup.Test.csproj", "{FCBE79DA-5058-48E4-99F3-8F9789AF526C}"
+	ProjectSection(ProjectDependencies) = postProject
+		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29} = {0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}
+	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ArchiveFilemover", "ArchiveFilemover\ArchiveFilemover.csproj", "{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DuplicateFinder", "DuplicateFinder\DuplicateFinder.csproj", "{AC04E0F4-B8D1-43E0-9D22-A39755E401CD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +32,10 @@ Global
 		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0970A969-9FE4-42B4-BA0C-6BC0A9EB7C29}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AC04E0F4-B8D1-43E0-9D22-A39755E401CD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AC04E0F4-B8D1-43E0-9D22-A39755E401CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AC04E0F4-B8D1-43E0-9D22-A39755E401CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AC04E0F4-B8D1-43E0-9D22-A39755E401CD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
