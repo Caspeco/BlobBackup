@@ -9,9 +9,9 @@ namespace DuplicateFinder
 
         public bool Exists => FileInfo.Exists;
         public long Size => Exists ? FileInfo.Length : -1;
-        private bool? _hasHardLink;
-        public bool HasHardLink => _hasHardLink ??
-                                   (_hasHardLink = HardLinkHelper.GetHardLinks(FileInfo.FullName, 2).Length >= 2).Value;
+        private readonly object _hardLinksLock = new object();
+        private string[] _allHardLinks;
+        public bool HasHardLink => GetHardLinks(null).Length >= 2;
         public bool IsReparsePoint => FileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint);
         public string Md5Full { get; private set; }
         public string Md5OneBlock { get; private set; }
@@ -22,6 +22,27 @@ namespace DuplicateFinder
             FileInfo = fInfo;
         }
 
+        public string[] GetHardLinks(string stripPath)
+        {
+            var links = _allHardLinks;
+            if (links == null)
+                lock (_hardLinksLock)
+                    links = _allHardLinks ?? (_allHardLinks = HardLinkHelper.GetHardLinks(FileInfo.FullName));
+
+            if (string.IsNullOrEmpty(stripPath))
+                return links;
+
+            for (int i = 0; i < links.Length; i++)
+            {
+                if (links[i].StartsWith(stripPath))
+                    links[i] = links[i].Substring(stripPath.Length);
+            }
+            _allHardLinks = links;
+            return links;
+        }
+
+        private const string ZeroSizeMd5AsBase64 = "1B2M2Y8AsgTpgAmY7PhCfg==";
+
         /// <summary>
         /// Returns calculated MD5 if possible
         /// </summary>
@@ -31,6 +52,8 @@ namespace DuplicateFinder
                 return Md5Full;
             if (!string.IsNullOrEmpty(Md5Full))
                 return Md5Full;
+            if (Size == 0)
+                return ZeroSizeMd5AsBase64;
 
             using (var md5 = System.Security.Cryptography.MD5.Create())
             using (var stream = FileInfo.OpenRead())

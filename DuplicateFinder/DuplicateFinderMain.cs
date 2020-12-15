@@ -86,7 +86,7 @@ namespace DuplicateFinder
         private static readonly Dictionary<long, TreeNodeDupSize> Root = new Dictionary<long, TreeNodeDupSize>();
         private static readonly object RootLock = new object();
 
-        private static Tuple<DupItem, TreeNodeDupMd5Full> AddDup(FileInfo fInfo)
+        private static Tuple<DupItem, TreeNodeDupMd5Full> AddDup(FileInfo fInfo, Action<DupItem> doLink)
         {
             var d = new DupItem(fInfo);
             var s = d.Size;
@@ -96,6 +96,8 @@ namespace DuplicateFinder
                 lock (RootLock)
                     n = Root.GetOrNew(s);
             }
+
+            Task.Run(() => doLink(d));
 
             var tFull = n.Add(d);
 
@@ -108,17 +110,47 @@ namespace DuplicateFinder
             // only moving on to the next step if current step has duplicate
 
             var tasks = new System.Collections.Concurrent.ConcurrentBag<Task>();
+            var knownHardLinks = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
+            var stripPath = path;
+            var root = Path.GetPathRoot(stripPath);
+            if (stripPath.StartsWith(root))
+                stripPath = @"\" + stripPath.Substring(root.Length);
+
+            // if file is known among hardlinks then there is no need to check it further
+            bool HasNoLink(FileInfo fi)
+            {
+                var k = fi.FullName.Substring(path.Length);
+                var isKnownLink = knownHardLinks.ContainsKey(k);
+                if (isKnownLink)
+                    knownHardLinks.TryRemove(k, out var b); // faster to only check this? since it returns true if removed successfully?
+
+                return !isKnownLink;
+            }
+
+            void DoLinks(DupItem d)
+            {
+                var hl = d.GetHardLinks(stripPath);
+                foreach (var l in hl)
+                    knownHardLinks.TryAdd(l, (byte)0);
+            }
+
+            Tuple<DupItem, TreeNodeDupMd5Full> AddDupInt(FileInfo fi)
+            {
+                return AddDup(fi, DoLinks);
+            }
 
             long totalItemsTraversed = 0;
             int itemsSincePrint = 0;
             var runStart = DateTime.UtcNow;
             var dir = new DirectoryInfo(path);
             Tools.EnumerateFilesParallel(dir)
+                .Where(HasNoLink)
                 .Where(fi => fi.LastWriteTimeUtc < runStart.AddHours(-1))
-                .Select(AddDup).ForAll(dnTpl =>
+                .Select(AddDupInt)
+                .ForAll(dnTpl =>
             {
                 Interlocked.Increment(ref totalItemsTraversed);
-                if (Interlocked.Increment(ref itemsSincePrint) % 10000 == 1)
+                if (Interlocked.Increment(ref itemsSincePrint) % 5000 == 1)
                 {
                     Console.Write('.');
                 }
@@ -129,7 +161,6 @@ namespace DuplicateFinder
                 var d = dnTpl.Item1;
                 try
                 {
-                    //  TODO try to be smart, use HardLink list to avoid checking different files
                     if (d.HasHardLink)
                     {
                         var existing = tNode.Existing;
