@@ -22,7 +22,7 @@ namespace DuplicateFinder
             var items = await FindFiles(args[0]);
             sw.Stop();
 
-            Console.WriteLine($"Duplicate done {items} items traversed in {sw.Elapsed.ToString()}");
+            Console.WriteLine($"\nDuplicate done {items} items traversed in {sw.Elapsed.ToString()}");
 
             if (Debugger.IsAttached) Console.ReadKey();
             return 0;
@@ -33,18 +33,32 @@ namespace DuplicateFinder
             private static readonly object Lock = new object();
             public DupItem Existing { get; internal set; }
 
-            protected abstract TreeNodeDupMd5Full AddNonFirst(DupItem d);
+            protected virtual string KeyBeforeLock(DupItem x) { return null; }
+            protected abstract IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d);
+            protected virtual TreeNodeDupMd5Full AddNonFirstPostLock(IList<Tuple<TreeNodeBase, DupItem>> l)
+            {
+                return l
+                    .Select(t => t.Item1.Add(t.Item2))
+                    .Last();
+            }
 
             public TreeNodeDupMd5Full Add(DupItem d)
             {
+                if (Existing != null)
+                    KeyBeforeLock(d); // do this outside lock
+
+                IList<Tuple<TreeNodeBase, DupItem>> l;
                 lock (Lock)
                 {
-                    if (Existing != null)
-                        return AddNonFirst(d);
-
-                    Existing = d;
-                    return null;
+                    if (Existing == null)
+                    {
+                        Existing = d;
+                        return null;
+                    }
+                    l = AddNonFirstLock(d); // do lock critical
                 }
+
+                return AddNonFirstPostLock(l); // do stuff not needing lock at this level
             }
         }
 
@@ -52,12 +66,17 @@ namespace DuplicateFinder
         {
             private readonly Dictionary<string, TreeNodeDupMd5OneBlock> SubTree = new Dictionary<string, TreeNodeDupMd5OneBlock>();
 
-            protected override TreeNodeDupMd5Full AddNonFirst(DupItem d)
+            protected override string KeyBeforeLock(DupItem x)
+            {
+                return x.GetMd5OneBlock();
+            }
+
+            protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
             {
                 var unhandSibs = SubTree.Count == 0 ? new[] {Existing, d} : new[] {d};
                 return unhandSibs
-                    .Select(s => SubTree.GetOrNew(s.GetMd5OneBlock()).Add(s))
-                    .Last();
+                    .Select(s => Tuple.Create((TreeNodeBase)SubTree.GetOrNew(KeyBeforeLock(s)), s))
+                    .ToList();
             }
         }
 
@@ -65,18 +84,28 @@ namespace DuplicateFinder
         {
             private readonly Dictionary<string, TreeNodeDupMd5Full> SubTree = new Dictionary<string, TreeNodeDupMd5Full>();
 
-            protected override TreeNodeDupMd5Full AddNonFirst(DupItem d)
+            protected override string KeyBeforeLock(DupItem x)
+            {
+                return x.GetMd5Full();
+            }
+
+            protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
             {
                 var unhandSibs = SubTree.Count == 0 ? new[] {Existing, d} : new[] {d};
                 return unhandSibs
-                    .Select(s => SubTree.GetOrNew(s.GetMd5Full()).Add(s))
-                    .Last();
+                    .Select(s => Tuple.Create((TreeNodeBase)SubTree.GetOrNew(KeyBeforeLock(s)), s))
+                    .ToList();
             }
         }
 
         private class TreeNodeDupMd5Full : TreeNodeBase
         {
-            protected override TreeNodeDupMd5Full AddNonFirst(DupItem d)
+            protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
+            {
+                return null;
+            }
+
+            protected override TreeNodeDupMd5Full AddNonFirstPostLock(IList<Tuple<TreeNodeBase, DupItem>> l)
             {
                 return this;
             }
@@ -111,18 +140,31 @@ namespace DuplicateFinder
 
             var tasks = new System.Collections.Concurrent.ConcurrentBag<Task>();
             var knownHardLinks = new System.Collections.Concurrent.ConcurrentDictionary<string, byte>();
-            var stripPath = path;
+            long totalItemsTraversed = 0;
+            var runStart = DateTime.UtcNow;
+            var dir = new DirectoryInfo(path);
+            var stripPath = dir.FullName;
             var root = Path.GetPathRoot(stripPath);
             if (stripPath.StartsWith(root))
                 stripPath = @"\" + stripPath.Substring(root.Length);
 
+            char pChar = 's';
+
             // if file is known among hardlinks then there is no need to check it further
             bool HasNoLink(FileInfo fi)
             {
+                if (Interlocked.Increment(ref totalItemsTraversed) % (pChar == '.' ? 5000 : 100) == 0)
+                {
+                    Console.Write(pChar);
+                    pChar = '.';
+                }
                 var k = fi.FullName.Substring(path.Length);
                 var isKnownLink = knownHardLinks.ContainsKey(k);
                 if (isKnownLink)
+                {
                     knownHardLinks.TryRemove(k, out var b); // faster to only check this? since it returns true if removed successfully?
+                    pChar = '-';
+                }
 
                 return !isKnownLink;
             }
@@ -130,7 +172,8 @@ namespace DuplicateFinder
             void DoLinks(DupItem d)
             {
                 var hl = d.GetHardLinks(stripPath);
-                foreach (var l in hl)
+                var k = d.FileInfo.FullName.Substring(path.Length);
+                foreach (var l in hl.Except(new[] {k}))
                     knownHardLinks.TryAdd(l, (byte)0);
             }
 
@@ -139,22 +182,12 @@ namespace DuplicateFinder
                 return AddDup(fi, DoLinks);
             }
 
-            long totalItemsTraversed = 0;
-            int itemsSincePrint = 0;
-            var runStart = DateTime.UtcNow;
-            var dir = new DirectoryInfo(path);
             Tools.EnumerateFilesParallel(dir)
                 .Where(HasNoLink)
                 .Where(fi => fi.LastWriteTimeUtc < runStart.AddHours(-1))
                 .Select(AddDupInt)
                 .ForAll(dnTpl =>
             {
-                Interlocked.Increment(ref totalItemsTraversed);
-                if (Interlocked.Increment(ref itemsSincePrint) % 5000 == 1)
-                {
-                    Console.Write('.');
-                }
-
                 var tNode = dnTpl.Item2;
                 if (tNode == null)
                     return; // not duplicate
@@ -163,15 +196,22 @@ namespace DuplicateFinder
                 {
                     if (d.HasHardLink)
                     {
+                        pChar = 'x';
                         var existing = tNode.Existing;
                         if (existing.HasHardLink)
+                        {
+                            pChar = 'r';
                             return;
+                        }
+
                         tNode.Existing = d;
                         d = existing;
                     }
+                    // TODO if we have 2 identical files, and both of them has links (not same), what to do? (to avoid having 2 separate identical sets)
+                    // TODO there is a limit on how many references can be done to the same data?
 
-                    Console.WriteLine($"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} Duplicate {d}");
-                    itemsSincePrint = 0;
+                    pChar = 'l';
+                    Console.WriteLine($" {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} Duplicate {d}");
                     var linkItem = tNode.Existing;
                     linkItem.FileInfo.CreateHardLink(d.FileInfo.FullName);
                 }
