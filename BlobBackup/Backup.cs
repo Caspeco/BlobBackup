@@ -456,8 +456,16 @@ namespace BlobBackup
                         if (noDownloadNeeded)
                         {
                             // since size and hash is the same as last, we just fix local modification time and update database
+                            if (lfi.Exists)
+                            {
+                                lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
+                                SqlFileInfo.UpdateFromFileInfo(lfi);
+                            }
+                            else
+                            {
+                                SqlFileInfo.UpdateFromAzure(Blob);
+                            }
                             SqlFileInfo.UpdateDb();
-                            lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
                             return true;
                         }
 
