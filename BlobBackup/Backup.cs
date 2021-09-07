@@ -366,6 +366,16 @@ namespace BlobBackup
 
             private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
 
+            private static void EnsureDirExists(string file)
+            {
+                var dir = Path.GetDirectoryName(file);
+                if (!HasCreatedDirectories.Contains(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                    HasCreatedDirectories.Add(dir);
+                }
+            }
+
             public BlobJob(Backup bakParent, BlobItem blob, string localFilePath)
             {
                 Bak = bakParent;
@@ -429,12 +439,7 @@ namespace BlobBackup
                     if (NeedsJob == JobType.New)
                     {
                         AddJobChar('N');
-                        var dir = Path.GetDirectoryName(LocalFilePath);
-                        if (!HasCreatedDirectories.Contains(dir))
-                        {
-                            Directory.CreateDirectory(dir);
-                            HasCreatedDirectories.Add(dir);
-                        }
+                        EnsureDirExists(LocalFilePath);
                     }
                     else if (NeedsJob == JobType.Modified)
                     {
@@ -488,6 +493,7 @@ namespace BlobBackup
                     if (HandleWellKnownBlob())
                         return true;
 
+                    EnsureDirExists(LocalFilePath);
                     SqlFileInfo.UpdateFromAzure(Blob);
                     await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
                     SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
