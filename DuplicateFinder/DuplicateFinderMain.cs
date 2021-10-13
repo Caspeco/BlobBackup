@@ -19,7 +19,8 @@ namespace DuplicateFinder
         public static async Task<int> MainAsync(string[] args)
         {
             var sw = Stopwatch.StartNew();
-            var items = await FindFiles(args[0]);
+            var dryrun = args.Length > 1 && args[1] == "--dryrun";
+            var items = await FindFiles(args[0], dryrun);
             sw.Stop();
 
             Console.WriteLine($"\nDuplicate done {items} items traversed in {sw.Elapsed.ToString()}");
@@ -133,7 +134,7 @@ namespace DuplicateFinder
             return Tuple.Create(d, tFull);
         }
 
-        public static async Task<long> FindFiles(string path)
+        public static async Task<long> FindFiles(string path, bool dryrun)
         {
             // building a tree of size, small size checksum, full size
             // only moving on to the next step if current step has duplicate
@@ -213,7 +214,8 @@ namespace DuplicateFinder
                     pChar = 'l';
                     Console.WriteLine($" {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} Duplicate {d}");
                     var linkItem = tNode.Existing;
-                    linkItem.FileInfo.CreateHardLink(d.FileInfo.FullName);
+                    if (!dryrun)
+                        linkItem.FileInfo.CreateHardLink(d.FileInfo.FullName);
                 }
                 catch (Exception ex)
                 {
