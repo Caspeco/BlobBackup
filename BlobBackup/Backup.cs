@@ -416,6 +416,12 @@ namespace BlobBackup
                 // Ignore files only containing "[]"
                 if (blob.Size == 2 && blob.MD5 == "11FxOYiYfpMxmANj4kGJzg==")
                     return true;
+                // Ignore files only containing "{}"
+                if (blob.Size == 2 && blob.MD5 == "mZFLkyvTelC5g8XnyQrpOw==")
+                    return true;
+                // Ignore files only containing "[\"\"]"
+                if (blob.Size == 4 && blob.MD5 == "OZ/GZwhxR0zXzgRYQB/SmQ==")
+                    return true;
 
                 return false;
             }
