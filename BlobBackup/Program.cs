@@ -1,4 +1,5 @@
-﻿using System;
+﻿using CommandLine;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -23,11 +24,10 @@ namespace BlobBackup
         public static async Task<int> MainAsync(string[] args)
         {
             var options = new CommandOptions();
-
-            if (!CommandLine.Parser.Default.ParseArguments(args, options))
-            {
-                Environment.Exit(CommandLine.Parser.DefaultExitCodeFail);
-            }
+            var result = Parser.Default.ParseArguments<CommandOptions>(args)
+                .WithParsed(o => options = o);
+            if (result.Errors.Any())
+                Environment.Exit(1);
 
             var job = new Backup(options.BackupPath, options.ContainerName);
 

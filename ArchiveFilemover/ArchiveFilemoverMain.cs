@@ -1,3 +1,4 @@
+using CommandLine;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -19,10 +20,10 @@ namespace ArchiveFilemover
         public static async Task<int> MainAsync(string[] args)
         {
             var options = new CommandOptions();
-            if (!CommandLine.Parser.Default.ParseArguments(args, options))
-            {
-                Environment.Exit(CommandLine.Parser.DefaultExitCodeFail);
-            }
+            var result = Parser.Default.ParseArguments<CommandOptions>(args)
+                .WithParsed(o => options = o);
+            if (result.Errors.Any())
+                Environment.Exit(1);
 
             var sw = Stopwatch.StartNew();
             var items = await MoveFiles(options);

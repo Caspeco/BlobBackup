@@ -22,13 +22,7 @@ namespace BlobBackup
         [Option('c', "container", Required = true, HelpText = "Blob storage container to process")]
         public string ContainerName { get; set; }
 
-        [Option('d', "downloads", Required = false, DefaultValue = 40, HelpText = "Number of files to download simultaneously")]
+        [Option('d', "downloads", Required = false, Default = 40, HelpText = "Number of files to download simultaneously")]
         public int Parallel { get; set; }
-
-        [HelpOption]
-        public string GetUsage()
-        {
-            return HelpText.AutoBuild(this, current => HelpText.DefaultParsingErrorsHandler(this, current));
-        }
     }
 }

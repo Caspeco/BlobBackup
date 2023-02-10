@@ -18,11 +18,5 @@ namespace ArchiveFilemover
 
         [Option('x', "maxwritedate", HelpText = "Ignore files with write time after this")]
         public DateTime MaxWriteTime { get; set; }
-
-        [HelpOption]
-        public string GetUsage()
-        {
-            return HelpText.AutoBuild(this, current => HelpText.DefaultParsingErrorsHandler(this, current));
-        }
     }
 }
