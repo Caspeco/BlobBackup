@@ -18,7 +18,7 @@ namespace BlobBackup
         internal static void PrintStats(Stopwatch sw)
         {
             Console.WriteLine();
-            Console.WriteLine($"Elapsed time {sw.Elapsed.ToString()}");
+            Console.WriteLine($"Elapsed time {sw.Elapsed}");
         }
 
         public static async Task<int> MainAsync(string[] args)
@@ -36,7 +36,7 @@ namespace BlobBackup
 
             try
             {
-                var prepTask = Task.Run(() => job.PrepareJob(options.AccountName, options.AccountKey));
+                var prepTask = job.PrepareJobAsync(options.AccountName, options.AccountKey);
                 job.AddTasks(prepTask);
                 var processTask = job.ProcessJob(options.Parallel);
                 await prepTask;
@@ -49,13 +49,13 @@ namespace BlobBackup
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Something did a bobo {ex.ToString()}");
+                Console.WriteLine($"Something did a bobo {ex}");
             }
             job.CheckPrintConsole(true);
             PrintStats(sw);
 
             Console.WriteLine();
-            Console.WriteLine($"Done in {sw.Elapsed.ToString()}");
+            Console.WriteLine($"Done in {sw.Elapsed}");
             if (Debugger.IsAttached) Console.ReadKey();
             return 0;
         }

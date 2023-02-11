@@ -3,7 +3,6 @@ using Microsoft.WindowsAzure.Storage.Blob;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace BlobBackup
@@ -15,22 +14,28 @@ namespace BlobBackup
 
         #region ILocalFileInfo
         public bool Exists => !Blob.IsDeleted;
-        public long Size { get; }
-        public string MD5 { get; }
+        public long Size { get; private set; }
+        public string MD5 { get; private set; }
         public DateTime LastModifiedTimeUtc => LastModifiedUtc.UtcDateTime;
         #endregion ILocalFileInfo
 
-        public DateTimeOffset LastModifiedUtc { get; }
+        public DateTimeOffset LastModifiedUtc { get; private set; }
         internal Func<string, System.IO.FileMode, Task> DownloadToFileAsync;
+
+        private void UpdateProps(BlobProperties props)
+        {
+            // TODO cache on first use only
+            Size = props.Length;
+            MD5 = props.ContentMD5;
+            LastModifiedUtc = props.LastModified ?? DateTimeOffset.MinValue;
+        }
 
         private BlobItem(CloudBlockBlob blob)
         {
             Blob = blob;
             Uri = blob.Uri;
-            Size = blob.Properties.Length;
-            MD5 = blob.Properties.ContentMD5;
-            LastModifiedUtc = blob.Properties.LastModified ?? DateTimeOffset.MinValue;
-            DownloadToFileAsync = Blob.DownloadToFileAsync;
+            UpdateProps(blob.Properties);
+            DownloadToFileAsync = blob.DownloadToFileAsync;
         }
 
         public string GetLocalFileName()
@@ -50,12 +55,21 @@ namespace BlobBackup
             return new BlobItem(blob);
         }
 
-        public static ParallelQuery<BlobItem> BlobEnumerator(string containerName, string accountName, string accountKey)
+        public static async IAsyncEnumerable<ParallelQuery<T>> BlobEnumeratorAsync<T>(string containerName, string accountName, string accountKey, Func<BlobItem, T> getItem)
         {
             var account = CloudStorageAccount.Parse($"DefaultEndpointsProtocol=https;AccountName={accountName};AccountKey={accountKey};EndpointSuffix=core.windows.net");
             var client = account.CreateCloudBlobClient();
             var container = client.GetContainerReference(containerName);
-            return container.ListBlobs(null, true, BlobListingDetails.None).AsParallel().Select(GetBlobItem);
+            var list = new List<T>();
+            BlobContinuationToken continuationToken = null;
+            do
+            {
+                var response = await container.ListBlobsSegmentedAsync(continuationToken);
+                continuationToken = response.ContinuationToken;
+                yield return response.Results.AsParallel().Select(GetBlobItem).Select(getItem);
+            }
+            while (continuationToken != null);
+
         }
     }
 }

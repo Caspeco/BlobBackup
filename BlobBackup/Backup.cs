@@ -139,8 +139,9 @@ namespace BlobBackup
             return bJob;
         }
 
-        public Backup PrepareJob(string accountName, string accountKey)
+        public async Task<Backup> PrepareJobAsync(string accountName, string accountKey)
         {
+            await Task.Yield();
             var localContainerPath = Path.Combine(_localPath, _containerName);
             Directory.CreateDirectory(localContainerPath);
             var localDir = new DirectoryInfo(localContainerPath);
@@ -149,7 +150,9 @@ namespace BlobBackup
             try
             {
                 _sqlLite.BeginTransaction();
-                BlobItem.BlobEnumerator(_containerName, accountName, accountKey).Select(GetBlobJob).Where(j => j != null).ForAll(bJob =>
+                await foreach (var blobBatch in BlobItem.BlobEnumeratorAsync(_containerName, accountName, accountKey, GetBlobJob))
+                {
+                    blobBatch.Where(j => j != null).ForAll(bJob =>
                 {
                     var blob = bJob.Blob;
                     var file = bJob.FileInfo;
@@ -195,6 +198,7 @@ namespace BlobBackup
                 });
                 if (downloadOk == null)
                     downloadOk = true;
+                }
             }
             catch (Exception ex)
             {
