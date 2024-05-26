@@ -26,7 +26,7 @@ namespace ArchiveFilemover
                 Environment.Exit(1);
 
             var sw = Stopwatch.StartNew();
-            var items = await MoveFiles(options);
+            var items = MoveFiles(options);
             sw.Stop();
 
             Console.WriteLine($"Move done {items} items traversed in {sw.Elapsed.ToString()}");
@@ -78,7 +78,7 @@ namespace ArchiveFilemover
 
         private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
 
-        private static async Task<long> MoveFiles(CommandOptions options)
+        private static long MoveFiles(CommandOptions options)
         {
             long totalItemsTraversed = 0;
             int itemsSincePrint = 0;
