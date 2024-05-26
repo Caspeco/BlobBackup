@@ -1,11 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace DuplicateFinder;
 
@@ -23,7 +16,7 @@ public class DuplicateFinderMain
         var items = await FindFiles(args[0], dryrun);
         sw.Stop();
 
-        Console.WriteLine($"\nDuplicate done {items} items traversed in {sw.Elapsed.ToString()}");
+        Console.WriteLine($"\nDuplicate done {items} items traversed in {sw.Elapsed}");
 
         if (Debugger.IsAttached) Console.ReadKey();
         return 0;
@@ -31,27 +24,25 @@ public class DuplicateFinderMain
 
     private abstract class TreeNodeBase
     {
-        private static readonly object Lock = new object();
-        public DupItem Existing { get; internal set; }
+        private static readonly object Lock = new();
+        public DupItem? Existing { get; internal set; }
 
-        protected virtual string KeyBeforeLock(DupItem x) { return null; }
+        protected virtual string KeyBeforeLock(DupItem x) => throw new NotImplementedException();
         protected abstract IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d);
-        protected virtual TreeNodeDupMd5Full AddNonFirstPostLock(IList<Tuple<TreeNodeBase, DupItem>> l)
-        {
-            return l
+        protected virtual TreeNodeDupMd5Full? AddNonFirstPostLock(IList<Tuple<TreeNodeBase, DupItem>> l) =>
+            l
                 .Select(t => t.Item1.Add(t.Item2))
                 .Last();
-        }
 
-        public TreeNodeDupMd5Full Add(DupItem d)
+        public TreeNodeDupMd5Full? Add(DupItem d)
         {
-            if (Existing != null)
+            if (Existing is not null)
                 KeyBeforeLock(d); // do this outside lock
 
             IList<Tuple<TreeNodeBase, DupItem>> l;
             lock (Lock)
             {
-                if (Existing == null)
+                if (Existing is null)
                 {
                     Existing = d;
                     return null;
@@ -65,16 +56,13 @@ public class DuplicateFinderMain
 
     private class TreeNodeDupSize : TreeNodeBase
     {
-        private readonly Dictionary<string, TreeNodeDupMd5OneBlock> SubTree = new Dictionary<string, TreeNodeDupMd5OneBlock>();
+        private readonly Dictionary<string, TreeNodeDupMd5OneBlock> SubTree = [];
 
-        protected override string KeyBeforeLock(DupItem x)
-        {
-            return x.GetMd5OneBlock();
-        }
+        protected override string KeyBeforeLock(DupItem x) => x.GetMd5OneBlock() ?? throw new NullReferenceException();
 
         protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
         {
-            var unhandSibs = SubTree.Count == 0 ? new[] {Existing, d} : new[] {d};
+            var unhandSibs = SubTree.Count == 0 ? new[] {Existing!, d} : new[] {d};
             return unhandSibs
                 .Select(s => Tuple.Create((TreeNodeBase)SubTree.GetOrNew(KeyBeforeLock(s)), s))
                 .ToList();
@@ -83,16 +71,13 @@ public class DuplicateFinderMain
 
     private class TreeNodeDupMd5OneBlock : TreeNodeBase
     {
-        private readonly Dictionary<string, TreeNodeDupMd5Full> SubTree = new Dictionary<string, TreeNodeDupMd5Full>();
+        private readonly Dictionary<string, TreeNodeDupMd5Full> SubTree = [];
 
-        protected override string KeyBeforeLock(DupItem x)
-        {
-            return x.GetMd5Full();
-        }
+        protected override string KeyBeforeLock(DupItem x) => x.GetMd5Full() ?? throw new NullReferenceException();
 
         protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
         {
-            var unhandSibs = SubTree.Count == 0 ? new[] {Existing, d} : new[] {d};
+            var unhandSibs = SubTree.Count == 0 ? new[] {Existing!, d} : new[] {d};
             return unhandSibs
                 .Select(s => Tuple.Create((TreeNodeBase)SubTree.GetOrNew(KeyBeforeLock(s)), s))
                 .ToList();
@@ -101,22 +86,16 @@ public class DuplicateFinderMain
 
     private class TreeNodeDupMd5Full : TreeNodeBase
     {
-        protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
-        {
-            return null;
-        }
+        protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d) => throw new NotImplementedException();
 
-        protected override TreeNodeDupMd5Full AddNonFirstPostLock(IList<Tuple<TreeNodeBase, DupItem>> l)
-        {
-            return this;
-        }
+        protected override TreeNodeDupMd5Full AddNonFirstPostLock(IList<Tuple<TreeNodeBase, DupItem>> l) => this;
     }
 
     // Could this be a binary search tree and be faster/more efficient?
-    private static readonly Dictionary<long, TreeNodeDupSize> Root = new Dictionary<long, TreeNodeDupSize>();
-    private static readonly object RootLock = new object();
+    private static readonly Dictionary<long, TreeNodeDupSize> Root = [];
+    private static readonly object RootLock = new();
 
-    private static Tuple<DupItem, TreeNodeDupMd5Full> AddDup(FileInfo fInfo, Action<DupItem> doLink)
+    private static Tuple<DupItem, TreeNodeDupMd5Full?> AddDup(FileInfo fInfo, Action<DupItem> doLink)
     {
         var d = new DupItem(fInfo);
         var s = d.Size;
@@ -145,9 +124,9 @@ public class DuplicateFinderMain
         var runStart = DateTime.UtcNow;
         var dir = new DirectoryInfo(path);
         var stripPath = dir.FullName;
-        var root = Path.GetPathRoot(stripPath);
+        var root = Path.GetPathRoot(stripPath)!;
         if (stripPath.StartsWith(root))
-            stripPath = @"\" + stripPath.Substring(root.Length);
+            stripPath = string.Concat(@"\", stripPath.AsSpan(root.Length));
 
         char pChar = 's';
 
@@ -174,14 +153,11 @@ public class DuplicateFinderMain
         {
             var hl = d.GetHardLinks(stripPath);
             var k = d.FileInfo.FullName.Substring(path.Length);
-            foreach (var l in hl.Except(new[] {k}))
-                knownHardLinks.TryAdd(l, (byte)0);
+            foreach (var l in hl.Except([k]))
+                knownHardLinks.TryAdd(l, 0);
         }
 
-        Tuple<DupItem, TreeNodeDupMd5Full> AddDupInt(FileInfo fi)
-        {
-            return AddDup(fi, DoLinks);
-        }
+        Tuple<DupItem, TreeNodeDupMd5Full?> AddDupInt(FileInfo fi) => AddDup(fi, DoLinks);
 
         Tools.EnumerateFilesParallel(dir)
             .Where(HasNoLink)
@@ -190,7 +166,7 @@ public class DuplicateFinderMain
             .ForAll(dnTpl =>
         {
             var tNode = dnTpl.Item2;
-            if (tNode == null)
+            if (tNode is null)
                 return; // not duplicate
             var d = dnTpl.Item1;
             try
@@ -198,7 +174,7 @@ public class DuplicateFinderMain
                 if (d.HasHardLink)
                 {
                     pChar = 'x';
-                    var existing = tNode.Existing;
+                    var existing = tNode.Existing ?? throw new NullReferenceException();
                     if (existing.HasHardLink)
                     {
                         pChar = 'r';
@@ -213,9 +189,9 @@ public class DuplicateFinderMain
 
                 pChar = 'l';
                 Console.WriteLine($" {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} Duplicate {d}");
-                var linkItem = tNode.Existing;
+                var linkItem = tNode.Existing ?? throw new NullReferenceException();
                 if (!dryrun)
-                    linkItem.FileInfo.CreateHardLink(d.FileInfo.FullName);
+                    linkItem.FileInfo.CreateHardLink(d.FileInfo);
             }
             catch (Exception ex)
             {

@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Text;
 
 namespace DuplicateFinder;
@@ -26,11 +23,11 @@ public static class HardLinkHelper
     private const int MAX_PATH = 65535; // Max. NTFS path length.
     #endregion
 
-    public static void CreateHardLink(this FileInfo file, string destination)
+    public static void CreateHardLink(this FileInfo src, FileInfo destination)
     {
-        if (File.Exists(destination))
-            File.Delete(destination);
-        CreateHardLink(destination, file.FullName, IntPtr.Zero);
+        if (destination.Exists)
+            destination.Delete();
+        CreateHardLink(destination.FullName, src.FullName, IntPtr.Zero);
     }
 
     /// <summary>
