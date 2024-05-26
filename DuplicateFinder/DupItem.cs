@@ -21,7 +21,7 @@ public class DupItem
         var links = _allHardLinks;
         if (links == null)
             lock (_hardLinksLock)
-                links = _allHardLinks ?? (_allHardLinks = HardLinkHelper.GetHardLinks(FileInfo.FullName));
+                links = _allHardLinks ?? (_allHardLinks = FileInfo.EnumerateHardLinks().ToArray());
 
         if (string.IsNullOrEmpty(stripPath))
             return links;

@@ -1,33 +1,54 @@
-﻿using System.Runtime.InteropServices;
-using System.Text;
+﻿using System.ComponentModel;
+using System.Runtime.InteropServices;
 
 namespace DuplicateFinder;
 
-public static class HardLinkHelper
+public static partial class HardLinkHelper
 {
     #region WinAPI P/Invoke declarations
     private const string Kernel32dll = "kernel32.dll";
-    [DllImport(Kernel32dll, CharSet = CharSet.Unicode)]
-    private static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
-    
-    [DllImport(Kernel32dll, CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr FindFirstFileNameW(string lpFileName, uint dwFlags, ref uint StringLength, StringBuilder LinkName);
+    [LibraryImport(Kernel32dll, EntryPoint = "CreateHardLinkW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
 
-    [DllImport(Kernel32dll, CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern bool FindNextFileNameW(IntPtr hFindStream, ref uint StringLength, StringBuilder LinkName);
+    [LibraryImport(Kernel32dll, EntryPoint = "FindFirstFileNameW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    private static partial IntPtr FindFirstFileName(string lpFileName, uint dwFlags, ref uint StringLength, char[] LinkName);
 
-    [DllImport(Kernel32dll, SetLastError = true)]
-    private static extern bool FindClose(IntPtr hFindFile);
+    [LibraryImport(Kernel32dll, EntryPoint = "FindNextFileNameW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool FindNextFileName(IntPtr hFindStream, ref uint StringLength, char[] LinkName);
 
-    private static readonly IntPtr INVALID_HANDLE_VALUE = (IntPtr)(-1); // 0xffffffff;
+    [LibraryImport(Kernel32dll, EntryPoint = "FindClose", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool FindClose(IntPtr hFindFile);
+
+    private static readonly IntPtr INVALID_HANDLE_VALUE = -1; // 0xffffffff;
     private const int MAX_PATH = 65535; // Max. NTFS path length.
     #endregion
 
-    public static void CreateHardLink(this FileInfo src, FileInfo destination)
+    /// <param name="destination">Location to create a link at, that will have the same contents as <paramref name="src"/></param>
+    public static bool CreateHardLink(this FileInfo src, FileInfo destination, bool doReplace = true, bool reuseLink = false, bool dothrow = false)
     {
-        if (destination.Exists)
+        if (!src.Exists)
+        {
+            throw new FileNotFoundException("HardLink source not found", src.FullName);
+        }
+        var srcRoot = Path.GetPathRoot(src.FullName) ?? string.Empty;
+        if (srcRoot != Path.GetPathRoot(destination.FullName))
+        {
+            if (dothrow) throw new IOException("Source and destination must be on same drive for HardLink");
+            return false;
+        }
+        if (reuseLink && destination.Exists && destination.EnumerateHardLinks().Contains(src.FullName.Remove(0, srcRoot.Length - 1)))
+            return true;
+        if (doReplace && destination.Exists)
             destination.Delete();
-        CreateHardLink(destination.FullName, src.FullName, IntPtr.Zero);
+        var ret = CreateHardLink(destination.FullName, src.FullName, IntPtr.Zero);
+        if (dothrow && !ret)
+        {
+            throw new Win32Exception();
+        }
+        return ret;
     }
 
     /// <summary>
@@ -35,33 +56,27 @@ public static class HardLinkHelper
     /// the input path itself.
     /// </summary>
     /// <remarks>
-    /// If the file has only one hardlink (itself), or you specify a directory, only that
-    /// file's / directory's full path is returned.
-    /// If the path refers to a volume that doesn't support hardlinks, or the path
-    /// doesn't exist, empty array is returned.
+    /// If the file has only one hardlink (itself), or you specify a directory, only that full path is returned.
+    /// Path that refers to volume without hardlink support gives empty result.
+    /// Volume identifier is not present in paths
     /// </remarks>
-    public static string[] GetHardLinks(string filepath, int itemLimit = 0)
+    public static IEnumerable<string> EnumerateHardLinks(this FileInfo fi)
     {
         // Loop over and collect all hard links as their full paths.
         IntPtr findHandle = INVALID_HANDLE_VALUE;
         try
         {
-            var sbPath = new StringBuilder(MAX_PATH);
-            uint charCount = (uint)sbPath.Capacity; // in/out character-count variable for the WinAPI calls.
+            var sbPath = new char[MAX_PATH + 1];
+            uint charCount = MAX_PATH; // in/out character-count variable for the WinAPI calls.
 
-            var links = new List<string>();
-            if (INVALID_HANDLE_VALUE == (findHandle = FindFirstFileNameW(filepath, 0, ref charCount, sbPath)))
-                return links.ToArray();
+            if (INVALID_HANDLE_VALUE == (findHandle = FindFirstFileName(fi.FullName, 0, ref charCount, sbPath)))
+                yield break;
 
             do
             {
-                links.Add(sbPath.ToString()); // Add the full path to the result list.
-                if (itemLimit != 0 && itemLimit <= links.Count)
-                    break;
-                charCount = (uint)sbPath.Capacity; // Prepare for the next FindNextFileNameW() call.
-            } while (FindNextFileNameW(findHandle, ref charCount, sbPath));
-
-            return links.ToArray();
+                yield return new string(sbPath[.. (((int)charCount) - 1)]).Trim('\0');
+                charCount = MAX_PATH; // reset for next FindNextFileNameW() call
+            } while (FindNextFileName(findHandle, ref charCount, sbPath));
         }
         finally
         {
