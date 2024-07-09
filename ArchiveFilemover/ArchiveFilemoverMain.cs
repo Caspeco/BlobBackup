@@ -69,7 +69,7 @@ namespace ArchiveFilemover
                 .AsParallel();
         }
 
-        private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
+        private static readonly HashSet<string> HasCreatedDirectories = [];
 
         private static long MoveFiles(CommandOptions options)
         {

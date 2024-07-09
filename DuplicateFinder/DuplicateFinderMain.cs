@@ -62,7 +62,7 @@ public class DuplicateFinderMain
 
         protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
         {
-            var unhandSibs = SubTree.Count == 0 ? new[] {Existing!, d} : new[] {d};
+            var unhandSibs = SubTree.Count == 0 ? new[] {Existing!, d} : [d];
             return unhandSibs
                 .Select(s => Tuple.Create((TreeNodeBase)SubTree.GetOrNew(KeyBeforeLock(s)), s))
                 .ToList();
@@ -77,7 +77,7 @@ public class DuplicateFinderMain
 
         protected override IList<Tuple<TreeNodeBase, DupItem>> AddNonFirstLock(DupItem d)
         {
-            var unhandSibs = SubTree.Count == 0 ? new[] {Existing!, d} : new[] {d};
+            var unhandSibs = SubTree.Count == 0 ? new[] {Existing!, d} : [d];
             return unhandSibs
                 .Select(s => Tuple.Create((TreeNodeBase)SubTree.GetOrNew(KeyBeforeLock(s)), s))
                 .ToList();
@@ -100,7 +100,7 @@ public class DuplicateFinderMain
         var d = new DupItem(fInfo);
         var s = d.Size;
         var n = Root.Get(s);
-        if (n == null)
+        if (n is null)
         {
             lock (RootLock)
                 n = Root.GetOrNew(s);

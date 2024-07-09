@@ -34,10 +34,7 @@ namespace BlobBackup
             DownloadToFileAsync = blob.DownloadToFileAsync;
         }
 
-        public string GetLocalFileName()
-        {
-            return Uri.AbsolutePath.Replace("//", "/").Replace('/', '\\').Replace(":", "--COLON--").Substring(1);
-        }
+        public string GetLocalFileName() => Uri.AbsolutePath.Replace("//", "/").Replace('/', '\\').Trim('\\').Replace(":", "--COLON--");
 
         public override string ToString()
         {
@@ -46,7 +43,7 @@ namespace BlobBackup
 
         private static BlobItem GetBlobItem(IListBlobItem blobItem)
         {
-            if (!(blobItem is CloudBlockBlob blob))
+            if (blobItem is not CloudBlockBlob blob)
                 return null;
             return new BlobItem(blob);
         }
@@ -64,7 +61,7 @@ namespace BlobBackup
                 continuationToken = response.ContinuationToken;
                 yield return response.Results.AsParallel().Select(GetBlobItem).Select(getItem);
             }
-            while (continuationToken != null);
+            while (continuationToken is not null);
 
         }
     }

@@ -5,8 +5,8 @@ namespace BlobBackup
     public class FileInfoSqlite : IDisposable
     {
         private readonly string _sqlLitePath;
-        private ReaderWriterLockSlim _readerWriterLock = new ReaderWriterLockSlim();
-        private SQLiteConnection dbConnection;
+        private readonly ReaderWriterLockSlim _readerWriterLock = new();
+        private readonly SQLiteConnection dbConnection;
 
         private const string SQL_TABLENAME = "files";
 
@@ -40,7 +40,7 @@ namespace BlobBackup
         private SQLiteCommand GetCmd(string sql, object[] parameters)
         {
             var cmd = new SQLiteCommand(sql, dbConnection);
-            if (parameters != null)
+            if (parameters is not null)
             {
                 int paramNumber = 1;
                 foreach (object value in parameters)
@@ -87,7 +87,7 @@ namespace BlobBackup
 
         private static DateTime? GetDateTime(object value)
         {
-            if (value == null || value == DBNull.Value)
+            if (value is null || value == DBNull.Value)
                 return null;
             return Convert.ToDateTime(value);
         }
@@ -136,9 +136,9 @@ namespace BlobBackup
 
         public ILocalFileInfo GetFileInfo(BlobItem blob, string localFilename = null)
         {
-            ILocalFileInfo lfi = localFilename == null ? null : new LocalFileInfoDisk(localFilename);
+            ILocalFileInfo lfi = localFilename is null ? null : new LocalFileInfoDisk(localFilename);
             var fi = GetFileInfo(lfi, blob.GetLocalFileName());
-            if (fi != null)
+            if (fi is not null)
                 return fi;
 
             // create new instance
@@ -224,7 +224,7 @@ namespace BlobBackup
 
             internal void UpdateFromFileInfo(ILocalFileInfo fi)
             {
-                if (fi == null || !fi.Exists)
+                if (fi is null || !fi.Exists)
                     return;
                 LastModifiedTime = fi.LastModifiedTimeUtc;
                 Size = fi.Size;
@@ -237,10 +237,7 @@ namespace BlobBackup
                 _sqlLite.UpdateFileInfo(this);
             }
 
-            public override string ToString()
-            {
-                return string.Join("|", RemPath, LastModifiedTime, Size, MD5, LastDownloadedTime, DeleteDetectedTime);
-            }
+            public override string ToString() => string.Join("|", RemPath, LastModifiedTime, Size, MD5, LastDownloadedTime, DeleteDetectedTime);
         }
 
 

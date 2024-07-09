@@ -3,12 +3,12 @@ namespace BlobBackup
 {
     public class RunQueue<T> : IDisposable
     {
-        private object _doneQueueLock = new object();
+        private readonly object _doneQueueLock = new();
         private bool _noMoreAddsToBeDone;
-        private AutoResetEvent _doneReset = new AutoResetEvent(false);
-        private Queue<T> _doneQueue = new Queue<T>();
+        private readonly AutoResetEvent _doneReset = new(false);
+        private readonly Queue<T> _doneQueue = new();
 
-        private object _threadsLock = new object();
+        private readonly object _threadsLock = new();
         private List<Task> _threads;
 
         private int _doneCount;
@@ -44,7 +44,7 @@ namespace BlobBackup
             lock (_doneQueueLock)
             {
                 if (QueueCount == 0)
-                    return default(T);
+                    return default;
                 return _doneQueue.Dequeue();
             }
         }
@@ -58,7 +58,7 @@ namespace BlobBackup
             while (true)
             {
                 var runI = _GetNextDone();
-                if (runI == null)
+                if (runI is null)
                 {
                     // Make sure we run until final notice
                     if (!_noMoreAddsToBeDone)
@@ -86,7 +86,7 @@ namespace BlobBackup
             int startedThreads = 0;
             lock (_threadsLock)
             {
-                if (_threads == null) _threads = new List<Task>(nrThreads);
+                _threads ??= new List<Task>(nrThreads);
                 while (_threads.Count < nrThreads)
                 {
                     _threads.Add(Task.Factory.StartNew(runnerAction));
@@ -120,7 +120,7 @@ namespace BlobBackup
                 lock (lockObject)
                 {
                     CleanupTaskList(ts);
-                    Task.WaitAll(ts.ToArray());
+                    Task.WaitAll([.. ts]);
                 }
             }
         }

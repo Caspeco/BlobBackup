@@ -22,15 +22,15 @@ namespace BlobBackup
         public int LocalItems = 0;
         public int DeletedItems = 0;
 
-        private readonly object ExpectedLocalFilesLock = new object();
-        private HashSet<string> ExpectedLocalFiles = new HashSet<string>();
-        private RunQueue<BlobJob> BlobJobQueue = new RunQueue<BlobJob>();
-        private readonly object _tasksListLock = new object();
-        private readonly List<Task> _tasks = new List<Task>();
+        private readonly object ExpectedLocalFilesLock = new();
+        private HashSet<string> ExpectedLocalFiles = [];
+        private RunQueue<BlobJob> BlobJobQueue = new();
+        private readonly object _tasksListLock = new();
+        private readonly List<Task> _tasks = [];
         public int TaskCount => _tasks.Count;
 
-        private static readonly HashSet<char> JobChars = new HashSet<char>();
-        private static readonly object JobCharsLock = new object();
+        private static readonly HashSet<char> JobChars = [];
+        private static readonly object JobCharsLock = new();
         private static DateTime LastConsoleWrite = DateTime.MinValue;
         private static DateTime LastConsoleWriteLine = DateTime.MinValue;
         private static DateTime LastConsoleWriteStats = DateTime.MinValue;
@@ -58,7 +58,7 @@ namespace BlobBackup
         private Task[] GetTasks()
         {
             lock (_tasksListLock)
-                return _tasks.ToArray();
+                return [.. _tasks];
         }
 
         internal async Task WaitTaskAndClean()
@@ -113,7 +113,7 @@ namespace BlobBackup
                 CheckPrintConsole();
             }
 
-            if (blob == null)
+            if (blob is null)
             {
                 Interlocked.Increment(ref IgnoredItems);
                 return null;
@@ -122,7 +122,7 @@ namespace BlobBackup
             Interlocked.Add(ref TotalSize, blob.Size);
             var localFileName = blob.GetLocalFileName();
             var bJob = new BlobJob(this, blob, Path.Combine(_localPath, localFileName));
-            if (localFileName == null)
+            if (localFileName is null)
                 throw new NullReferenceException();
             lock (ExpectedLocalFilesLock)
                 ExpectedLocalFiles.Add(localFileName);
@@ -146,7 +146,7 @@ namespace BlobBackup
                 _sqlLite.BeginTransaction();
                 await foreach (var blobBatch in BlobItem.BlobEnumeratorAsync(_containerName, accountName, accountKey, GetBlobJob))
                 {
-                    blobBatch.Where(j => j != null).ForAll(bJob =>
+                    blobBatch.Where(j => j is not null).ForAll(bJob =>
                 {
                     var blob = bJob.Blob;
                     var file = bJob.FileInfo;
@@ -190,8 +190,7 @@ namespace BlobBackup
                         Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
                     }
                 });
-                if (downloadOk == null)
-                    downloadOk = true;
+                downloadOk ??= true;
                 }
             }
             catch (Exception ex)
@@ -270,11 +269,11 @@ namespace BlobBackup
         {
             var utcNow = DateTime.UtcNow;
 
-            char[] jChars = {};
+            char[] jChars = [];
             if (JobChars.Count != 0)
                 lock (JobCharsLock)
                 {
-                    jChars = JobChars.ToArray();
+                    jChars = [.. JobChars];
                     JobChars.Clear();
                 }
 
@@ -352,17 +351,17 @@ namespace BlobBackup
             Modified = 2,
         }
 
-        public class BlobJob
+        public class BlobJob(Backup bakParent, BlobItem blob, string localFilePath)
         {
-            internal readonly Backup Bak;
-            internal readonly BlobItem Blob;
-            internal readonly string LocalFilePath;
+            internal readonly Backup Bak = bakParent;
+            internal readonly BlobItem Blob = blob;
+            internal readonly string LocalFilePath = localFilePath;
             internal ILocalFileInfo FileInfo;
             internal Action<long> AddDownloaded;
             internal FileInfoSqlite.FileInfo SqlFileInfo => FileInfo as FileInfoSqlite.FileInfo;
             internal JobType NeedsJob = JobType.None;
 
-            private static readonly HashSet<string> HasCreatedDirectories = new HashSet<string>();
+            private static readonly HashSet<string> HasCreatedDirectories = [];
 
             private static void EnsureDirExists(string file)
             {
@@ -374,28 +373,21 @@ namespace BlobBackup
                 }
             }
 
-            public BlobJob(Backup bakParent, BlobItem blob, string localFilePath)
-            {
-                Bak = bakParent;
-                Blob = blob;
-                LocalFilePath = localFilePath;
-            }
-
-            private static DateTime ForceExistsFrom = DateTime.Now.AddDays(-30);
+            private static readonly DateTime ForceExistsFrom = DateTime.Now.AddDays(-30);
             public bool ForceDownloadMissing()
             {
                 if (FileInfo.Size != Blob.Size || FileInfo.MD5 != Blob.MD5)
                     return false; // if file changed, expect it to be downloaded by modification instad
 
                 var lfi = SqlFileInfo?.SrcFileInfo;
-                if (!(lfi is LocalFileInfoDisk))
+                if (lfi is not LocalFileInfoDisk)
                     return false;
 
                 // if newer than a month, and no file exits, force it
                 if (Blob.LastModifiedTimeUtc > ForceExistsFrom &&
                     !lfi.Exists && !WellKnownBlob(Blob))
                 {
-                    Console.WriteLine($"\n** Force Download expected existing file {Blob.ToString()}");
+                    Console.WriteLine($"\n** Force Download expected existing file {Blob}");
                     return true;
                 }
 
@@ -554,14 +546,14 @@ namespace BlobBackup
                 if (disposing)
                 {
                     var sqlInstance = _sqlLite;
-                    if (sqlInstance != null)
+                    if (sqlInstance is not null)
                     {
                         sqlInstance.Dispose();
                         _sqlLite = null;
                     }
 
                     var runQ = BlobJobQueue;
-                    if (runQ != null)
+                    if (runQ is not null)
                     {
                         runQ.Dispose();
                         BlobJobQueue = null;

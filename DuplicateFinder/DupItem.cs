@@ -1,8 +1,8 @@
 ﻿namespace DuplicateFinder;
 
-public class DupItem
+public class DupItem(FileInfo fInfo)
 {
-    public readonly FileInfo FileInfo;
+    public readonly FileInfo FileInfo = fInfo;
 
     public bool Exists => FileInfo.Exists;
     public long Size => Exists ? FileInfo.Length : -1;
@@ -14,14 +14,12 @@ public class DupItem
     public string? Md5OneBlock { get; private set; }
     public DateTime LastModifiedTimeUtc => FileInfo.LastWriteTimeUtc;
 
-    public DupItem(FileInfo fInfo) => FileInfo = fInfo;
-
     public string[] GetHardLinks(string? stripPath)
     {
         var links = _allHardLinks;
-        if (links == null)
+        if (links is null)
             lock (_hardLinksLock)
-                links = _allHardLinks ?? (_allHardLinks = FileInfo.EnumerateHardLinks().ToArray());
+                links = (_allHardLinks ??= FileInfo.EnumerateHardLinks().ToArray());
 
         if (string.IsNullOrEmpty(stripPath))
             return links;
@@ -49,9 +47,8 @@ public class DupItem
         if (Size == 0)
             return ZeroSizeMd5AsBase64;
 
-        using var md5 = System.Security.Cryptography.MD5.Create();
         using var stream = FileInfo.OpenRead();
-        return Md5Full = Convert.ToBase64String(md5.ComputeHash(stream));
+        return Md5Full = Convert.ToBase64String(System.Security.Cryptography.MD5.HashData(stream));
     }
 
     private const int OneBlock = 4 * 1024;
@@ -64,11 +61,10 @@ public class DupItem
         if (Size <= 8 * 1024)
             return Md5OneBlock = GetMd5Full();
 
-        using var md5 = System.Security.Cryptography.MD5.Create();
         using var stream = FileInfo.OpenRead();
         var buf = new byte[OneBlock];
         stream.Read(buf, 0, OneBlock);
-        return Md5OneBlock = Convert.ToBase64String(md5.ComputeHash(buf));
+        return Md5OneBlock = Convert.ToBase64String(System.Security.Cryptography.MD5.HashData(buf));
     }
 
     public override string ToString() => $"{Size} {GetMd5OneBlock()} {Md5Full} {FileInfo.FullName}";
