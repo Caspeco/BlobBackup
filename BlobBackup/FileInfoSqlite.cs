@@ -1,11 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data.SQLite;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+﻿using System.Data.SQLite;
 
 namespace BlobBackup
 {
@@ -67,8 +60,8 @@ namespace BlobBackup
             {
                 _readerWriterLock.EnterWriteLock();
 
-                using (var cmd = GetCmd(sql, parameters))
-                    return cmd.ExecuteNonQuery();
+                using var cmd = GetCmd(sql, parameters);
+                return cmd.ExecuteNonQuery();
             }
             finally
             {
@@ -83,8 +76,8 @@ namespace BlobBackup
             {
                 _readerWriterLock.EnterReadLock();
 
-                using (var cmd = GetCmd(sql, parameters))
-                    return cmd.ExecuteReader();
+                using var cmd = GetCmd(sql, parameters);
+                return cmd.ExecuteReader();
             }
             finally
             {
@@ -124,24 +117,20 @@ namespace BlobBackup
 
         internal FileInfo GetFileInfo(ILocalFileInfo lfi, string LocalName = null)
         {
-            using (var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE LocalName=@1", LocalName))
+            using var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE LocalName=@1", LocalName);
+            if (reader.Read())
             {
-                if (reader.Read())
-                {
-                    return new FileInfo(this, lfi, reader);
-                }
+                return new FileInfo(this, lfi, reader);
             }
             return null;
         }
 
         internal IEnumerable<FileInfo> GetAllFileInfos()
         {
-            using (var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE DeleteDetectedTime IS NULL"))
+            using var reader = ExecuteReader("SELECT * FROM " + SQL_TABLENAME + " WHERE DeleteDetectedTime IS NULL");
+            while (reader.Read())
             {
-                while (reader.Read())
-                {
-                    yield return new FileInfo(this, null, reader);
-                }
+                yield return new FileInfo(this, null, reader);
             }
         }
 

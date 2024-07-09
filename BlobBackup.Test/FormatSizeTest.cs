@@ -1,4 +1,4 @@
-﻿using System;
+﻿
 using Xunit;
 
 namespace BlobBackup.Test
