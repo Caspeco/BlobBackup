@@ -134,9 +134,9 @@ namespace BlobBackup
             }
         }
 
-        public ILocalFileInfo GetFileInfo(BlobItem blob, string localFilename = null)
+        public ILocalFileInfo GetFileInfo(BlobItem blob, System.IO.FileInfo localFile = null)
         {
-            ILocalFileInfo lfi = localFilename is null ? null : new LocalFileInfoDisk(localFilename);
+            ILocalFileInfo lfi = localFile is null ? null : new LocalFileInfoDisk(localFile);
             var fi = GetFileInfo(lfi, blob.GetLocalFileName());
             if (fi is not null)
                 return fi;

@@ -121,13 +121,13 @@ namespace BlobBackup
 
             Interlocked.Add(ref TotalSize, blob.Size);
             var localFileName = blob.GetLocalFileName();
-            var bJob = new BlobJob(this, blob, Path.Combine(_localPath, localFileName));
+            var bJob = new BlobJob(this, blob, new(Path.Combine(_localPath, localFileName)));
             if (localFileName is null)
                 throw new NullReferenceException();
             lock (ExpectedLocalFilesLock)
                 ExpectedLocalFiles.Add(localFileName);
 
-            bJob.FileInfo = _sqlLite.GetFileInfo(blob, bJob.LocalFilePath);
+            bJob.FileInfo = _sqlLite.GetFileInfo(blob, bJob.LocalFile);
             bJob.AddDownloaded = AddDownloaded;
 
             return bJob;
@@ -351,25 +351,28 @@ namespace BlobBackup
             Modified = 2,
         }
 
-        public class BlobJob(Backup bakParent, BlobItem blob, string localFilePath)
+        public class BlobJob(Backup bakParent, BlobItem blob, FileInfo localFile)
         {
             internal readonly Backup Bak = bakParent;
             internal readonly BlobItem Blob = blob;
-            internal readonly string LocalFilePath = localFilePath;
+            internal readonly FileInfo LocalFile = localFile;
             internal ILocalFileInfo FileInfo;
             internal Action<long> AddDownloaded;
             internal FileInfoSqlite.FileInfo SqlFileInfo => FileInfo as FileInfoSqlite.FileInfo;
             internal JobType NeedsJob = JobType.None;
 
             private static readonly HashSet<string> HasCreatedDirectories = [];
+            private static readonly object _hasCreatedDirectoriesLock = new();
 
-            private static void EnsureDirExists(string file)
+            private static void EnsureDirExists(FileInfo file)
             {
-                var dir = Path.GetDirectoryName(file);
-                if (!HasCreatedDirectories.Contains(dir))
+                var dir = file.Directory;
+                if (HasCreatedDirectories.Contains(dir.FullName))
+                    return;
+                lock (_hasCreatedDirectoriesLock)
                 {
-                    Directory.CreateDirectory(dir);
-                    HasCreatedDirectories.Add(dir);
+                    dir.Create();
+                    HasCreatedDirectories.Add(dir.FullName);
                 }
             }
 
@@ -435,12 +438,12 @@ namespace BlobBackup
                     if (NeedsJob == JobType.New)
                     {
                         AddJobChar('N');
-                        EnsureDirExists(LocalFilePath);
+                        EnsureDirExists(LocalFile);
                     }
                     else if (NeedsJob == JobType.Modified)
                     {
                         AddJobChar('m');
-                        lfi = new LocalFileInfoDisk(LocalFilePath);
+                        lfi = new LocalFileInfoDisk(LocalFile);
                         var noDownloadNeeded =
                             FileInfo.Size == Blob.Size &&
                             FileInfo.MD5 == Blob.MD5 &&
@@ -470,16 +473,16 @@ namespace BlobBackup
                             try
                             {
                                 if (lfi.Size <= 0) // just remove empty files, shouldn't exist
-                                    lfi.fInfo.Delete();
+                                    lfi.FileInfo.Delete();
                                 else
                                 {
-                                    var dst = LocalFilePath + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
+                                    var dst = LocalFile.FullName + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
                                     if (File.Exists(dst))
                                     {
                                         File.Delete(dst);
                                     }
 
-                                    lfi.fInfo.MoveTo(dst);
+                                    lfi.FileInfo.MoveTo(dst);
                                 }
                             }
                             catch (IOException)
@@ -497,13 +500,13 @@ namespace BlobBackup
                     if (HandleWellKnownBlob())
                         return true;
 
-                    EnsureDirExists(LocalFilePath);
+                    EnsureDirExists(LocalFile);
                     SqlFileInfo.UpdateFromAzure(Blob);
-                    await Blob.DownloadToFileAsync(LocalFilePath, FileMode.Create);
+                    await Blob.DownloadToFileAsync(LocalFile);
                     SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
                     AddDownloaded(Blob.Size);
                     // we always want a new file item after download
-                    lfi = new LocalFileInfoDisk(LocalFilePath);
+                    lfi = new LocalFileInfoDisk(LocalFile);
                     lfi.UpdateWriteTime(Blob.LastModifiedTimeUtc);
 
                     // maybe something changed from orignal data
@@ -524,13 +527,13 @@ namespace BlobBackup
                     Interlocked.Increment(ref Bak.ExceptionCount);
                     // Swallow 404 exceptions.
                     // This will happen if the file has been deleted in the temporary period from listing blobs and downloading
-                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());
+                    Console.WriteLine($"\nSwallowed Ex: {LocalFile} {ex}");
                 }
                 catch (IOException ex)
                 {
                     HasCreatedDirectories.Clear();
                     Interlocked.Increment(ref Bak.ExceptionCount);
-                    Console.WriteLine("\nSwallowed Ex: " + LocalFilePath + " " + ex.ToString());
+                    Console.WriteLine($"\nSwallowed Ex: {LocalFile} {ex}");
                 }
                 return false;
             }

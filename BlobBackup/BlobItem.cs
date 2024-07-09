@@ -16,7 +16,7 @@ namespace BlobBackup
         #endregion ILocalFileInfo
 
         public DateTimeOffset LastModifiedUtc { get; private set; }
-        internal Func<string, System.IO.FileMode, Task> DownloadToFileAsync;
+        internal Func<FileInfo, Task> DownloadToFileAsync;
 
         private void UpdateProps(BlobProperties props)
         {
@@ -31,7 +31,7 @@ namespace BlobBackup
             Blob = blob;
             Uri = blob.Uri;
             UpdateProps(blob.Properties);
-            DownloadToFileAsync = blob.DownloadToFileAsync;
+            DownloadToFileAsync = async (FileInfo fi) => await blob.DownloadToFileAsync(fi.FullName, FileMode.Create);
         }
 
         public string GetLocalFileName() => Uri.AbsolutePath.Replace("//", "/").Replace('/', '\\').Trim('\\').Replace(":", "--COLON--");

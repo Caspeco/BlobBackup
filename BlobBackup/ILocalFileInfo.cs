@@ -42,15 +42,15 @@ namespace BlobBackup
         }
     }
 
-    public class LocalFileInfoDisk(string fileName) : ILocalFileInfo
+    public class LocalFileInfoDisk(FileInfo fInfo) : ILocalFileInfo
     {
-        internal readonly System.IO.FileInfo fInfo = new(fileName);
+        internal System.IO.FileInfo FileInfo => fInfo;
 
-        public bool Exists => fInfo.Exists;
-        public long Size => Exists ? fInfo.Length : -1;
+        public bool Exists => FileInfo.Exists;
+        public long Size => Exists ? FileInfo.Length : -1;
         private string _md5;
         public string MD5 => _md5;
-        public DateTime LastModifiedTimeUtc => fInfo.LastWriteTimeUtc;
+        public DateTime LastModifiedTimeUtc => FileInfo.LastWriteTimeUtc;
 
         /// <summary>
         /// Returns calculated MD5 if possible
@@ -67,15 +67,19 @@ namespace BlobBackup
         public string CalculateMd5()
         {
             using var md5 = System.Security.Cryptography.MD5.Create();
-            using var stream = fInfo.OpenRead();
+            using var stream = FileInfo.OpenRead();
             return _md5 = Convert.ToBase64String(md5.ComputeHash(stream));
         }
 
         /// <summary>Set File write time to time in UTC</summary>
         public void UpdateWriteTime(DateTime lastModifiedTimeUtc)
         {
+            FileInfo.Refresh();
             if (Exists && LastModifiedTimeUtc != lastModifiedTimeUtc)
-                System.IO.File.SetLastWriteTimeUtc(fInfo.FullName, lastModifiedTimeUtc);
+            {
+                System.IO.File.SetLastWriteTimeUtc(FileInfo.FullName, lastModifiedTimeUtc);
+                FileInfo.Refresh();
+            }
         }
     }
 }
