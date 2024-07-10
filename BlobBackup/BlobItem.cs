@@ -33,7 +33,36 @@ namespace BlobBackup
             DownloadToFileAsync = async (FileInfo fi) => await cli.GetBlobClient(blob.Name).DownloadToAsync(fi.FullName);
         }
 
-        public string GetLocalFileName() => Name.Replace("//", "/").Replace('/', '\\').TrimStart('\\').Replace(":", "--COLON--");
+        private static readonly char[] InvalidPathChars = System.IO.Path.GetInvalidFileNameChars().Where(c => c != '\\').ToArray();
+        private static string GetCharReplacement(char c) =>
+            c switch
+            {
+                '"' => "QUOTE",
+                '<' => "LT",
+                '>' => "GT",
+                '|' => "PIPE",
+                ':' => "COLON",
+                '*' => "STAR",
+                '?' => "QUESTIONMARK",
+                _ => null,
+            };
+
+        /// <summary>Convert path with possible invalid chars to --CHAR-- alternative</summary>
+        public static string GetValidCharsPath(string path)
+        {
+            int idx = 0;
+            while ((idx = path.IndexOfAny(InvalidPathChars, idx + 1)) != -1)
+            {
+                var problemChar = path[idx];
+                var replacement = GetCharReplacement(problemChar)
+                    ?? throw new Exception($"Filename {path} contains invalid char { problemChar} @{idx} = {System.Globalization.CharUnicodeInfo.GetUnicodeCategory(problemChar)} and we have not replacement");
+                path = path.Replace($"{problemChar}", $"--{replacement}--");
+            }
+
+            return path;
+        }
+
+        public string GetLocalFileName() => GetValidCharsPath(Name.Replace("//", "/").Replace('/', '\\').TrimStart('\\'));
 
         public override string ToString() => string.Join("|", Name, Size, LastModifiedUtc, MD5);
 
