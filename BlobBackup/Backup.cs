@@ -397,27 +397,17 @@ namespace BlobBackup
                 return false;
             }
 
-            public static bool WellKnownBlob(ILocalFileInfo blob)
-            {
-                // Ignore empty files
-                if (blob.Size == 0)
-                    return true;
-
-                if (blob.MD5 == "1B2M2Y8AsgTpgAmY7PhCfg==" && blob.Size < 1024 * 1024) // md5 same as 0 byte
-                    return true;
-
-                // Ignore files only containing "[]"
-                if (blob.Size == 2 && blob.MD5 == "11FxOYiYfpMxmANj4kGJzg==")
-                    return true;
-                // Ignore files only containing "{}"
-                if (blob.Size == 2 && blob.MD5 == "mZFLkyvTelC5g8XnyQrpOw==")
-                    return true;
-                // Ignore files only containing "[\"\"]"
-                if (blob.Size == 4 && blob.MD5 == "OZ/GZwhxR0zXzgRYQB/SmQ==")
-                    return true;
-
-                return false;
-            }
+            public static bool WellKnownBlob(ILocalFileInfo blob) =>
+                (blob.Size, blob.MD5) switch
+                {
+                    { Size: 0, MD5: "1B2M2Y8AsgTpgAmY7PhCfg==" } => true, // md5 same as 0 byte
+                    { Size: 0 } => throw new Exception($"Non known zero size {blob.MD5}"),
+                    { Size: < 1024 * 1024, MD5: "1B2M2Y8AsgTpgAmY7PhCfg==" } => true, // md5 same as 0 byte
+                    { Size: 2, MD5: "11FxOYiYfpMxmANj4kGJzg==" } => true, // Ignore files only containing "[]"
+                    { Size: 2, MD5: "mZFLkyvTelC5g8XnyQrpOw==" } => true, // Ignore files only containing "{}"
+                    { Size: 4, MD5: "OZ/GZwhxR0zXzgRYQB/SmQ==" } => true, // Ignore files only containing "[\"\"]"
+                    _ => false,
+                };
 
             public bool HandleWellKnownBlob()
             {
