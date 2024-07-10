@@ -149,50 +149,50 @@ namespace BlobBackup
                 await foreach (var blobBatch in BlobItem.BlobEnumeratorAsync(_containerName, accountName, accountKey, GetBlobJob))
                 {
                     blobBatch.Where(j => j is not null).ForAll(bJob =>
-                {
-                    var blob = bJob.Blob;
-                    var file = bJob.FileInfo;
-                    try
                     {
-                        if (!file.Exists || bJob.ForceDownloadMissing())
+                        var blob = bJob.Blob;
+                        var file = bJob.FileInfo;
+                        try
                         {
-                            bJob.NeedsJob = JobType.New;
-                            bJob.SqlFileInfo.UpdateFromAzure(blob);
+                            if (!file.Exists || bJob.ForceDownloadMissing())
+                            {
+                                bJob.NeedsJob = JobType.New;
+                                bJob.SqlFileInfo.UpdateFromAzure(blob);
 
-                            if (bJob.HandleWellKnownBlob())
-                                Interlocked.Increment(ref IgnoredItems);
-                            else
-                                BlobJobQueue.AddDone(bJob);
+                                if (bJob.HandleWellKnownBlob())
+                                    Interlocked.Increment(ref IgnoredItems);
+                                else
+                                    BlobJobQueue.AddDone(bJob);
 
-                            Interlocked.Increment(ref NewItems);
-                            Interlocked.Add(ref NewItemsSize, blob.Size);
-                        }
-                        else if (!file.IsSame(blob))
-                        {
+                                Interlocked.Increment(ref NewItems);
+                                Interlocked.Add(ref NewItemsSize, blob.Size);
+                            }
+                            else if (!file.IsSame(blob))
+                            {
                             /*//
                             if (file.Size != blob.Size ||
                                 file.MD5 != blob.MD5 ||
                                 file.LastModifiedTimeUtc == blob.LastModifiedTimeUtc) // debug stuff
                                 Console.WriteLine($"\n** Seen {file.DiffString(blob)} for {bJob.LocalFilePath}");
                             //*/
-                            bJob.NeedsJob = JobType.Modified;
-                            BlobJobQueue.AddDone(bJob);
-                            Interlocked.Increment(ref ModifiedItems);
-                            Interlocked.Add(ref ModifiedItemsSize, blob.Size);
+                                bJob.NeedsJob = JobType.Modified;
+                                BlobJobQueue.AddDone(bJob);
+                                Interlocked.Increment(ref ModifiedItems);
+                                Interlocked.Add(ref ModifiedItemsSize, blob.Size);
+                            }
+                            else
+                            {
+                                Interlocked.Increment(ref UpToDateItems);
+                            }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            Interlocked.Increment(ref UpToDateItems);
+                            downloadOk = false;
+                            Interlocked.Increment(ref ExceptionCount);
+                            Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        downloadOk = false;
-                        Interlocked.Increment(ref ExceptionCount);
-                        Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
-                    }
-                });
-                downloadOk ??= true;
+                    });
+                    downloadOk ??= true;
                 }
             }
             catch (Exception ex)
