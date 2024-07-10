@@ -1,4 +1,4 @@
-﻿using Microsoft.WindowsAzure.Storage;
+﻿using Azure;
 
 namespace BlobBackup
 {
@@ -145,9 +145,10 @@ namespace BlobBackup
             bool? downloadOk = null;
             try
             {
-                _sqlLite.BeginTransaction();
                 await foreach (var blobBatch in BlobItem.BlobEnumeratorAsync(_containerName, accountName, accountKey, GetBlobJob))
                 {
+                    _sqlLite.BeginTransaction(); // reduce number of writes to sql file
+                    var didWorkAny = false;
                     blobBatch.Where(j => j is not null).ForAll(bJob =>
                     {
                         var blob = bJob.Blob;
@@ -169,16 +170,11 @@ namespace BlobBackup
                             }
                             else if (!file.IsSame(blob))
                             {
-                            /*//
-                            if (file.Size != blob.Size ||
-                                file.MD5 != blob.MD5 ||
-                                file.LastModifiedTimeUtc == blob.LastModifiedTimeUtc) // debug stuff
-                                Console.WriteLine($"\n** Seen {file.DiffString(blob)} for {bJob.LocalFilePath}");
-                            //*/
                                 bJob.NeedsJob = JobType.Modified;
                                 BlobJobQueue.AddDone(bJob);
                                 Interlocked.Increment(ref ModifiedItems);
                                 Interlocked.Add(ref ModifiedItemsSize, blob.Size);
+                                didWorkAny = true;
                             }
                             else
                             {
@@ -189,10 +185,12 @@ namespace BlobBackup
                         {
                             downloadOk = false;
                             Interlocked.Increment(ref ExceptionCount);
-                            Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Uri} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
+                            Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Name} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
                         }
                     });
                     downloadOk ??= true;
+                    if (didWorkAny) 
+                        _sqlLite.EndTransaction();
                 }
             }
             catch (Exception ex)
@@ -426,6 +424,7 @@ namespace BlobBackup
                 if (!WellKnownBlob(Blob))
                     return false;
                 // no real download of these files
+                SqlFileInfo.UpdateFromAzure(Blob);
                 SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
                 SqlFileInfo.UpdateDb();
                 NeedsJob = JobType.None;
@@ -450,10 +449,6 @@ namespace BlobBackup
                             FileInfo.Size == Blob.Size &&
                             FileInfo.MD5 == Blob.MD5 &&
                             (!lfi.Exists || (lfi.Size == Blob.Size && lfi.GetMd5() == Blob.MD5));
-                        /*//
-                        Console.WriteLine($"\n** Handling {FileInfo.DiffString(Blob)} for {LocalFilePath}");
-                        Console.WriteLine($"\n** Handling2 {lfi.DiffString(Blob)} for {LocalFilePath}");
-                        //*/
 
                         if (noDownloadNeeded)
                         {
@@ -475,7 +470,8 @@ namespace BlobBackup
                         {
                             try
                             {
-                                if (lfi.Size <= 0) // just remove empty files, shouldn't exist
+                                if (lfi.Size <= 0  // just remove empty files, shouldn't exist
+                                    || lfi.LastModifiedTimeUtc > DateTime.UtcNow.AddHours(-24)) // recently modified files is also just replaced
                                 {
                                     lfi.FileInfo.Delete();
                                 }
@@ -487,7 +483,8 @@ namespace BlobBackup
                                         File.Delete(dst);
                                     }
 
-                                    lfi.FileInfo.MoveTo(dst);
+                                    File.Move(lfi.FileInfo.FullName, dst);
+                                    lfi.FileInfo.Refresh();
                                 }
                             }
                             catch (IOException)
@@ -523,12 +520,13 @@ namespace BlobBackup
                     }
 
                     SqlFileInfo.UpdateFromFileInfo(lfi);
+                    SqlFileInfo.DeleteDetectedTime = null;
                     SqlFileInfo.UpdateDb();
 
                     NeedsJob = JobType.None;
                     return true;
                 }
-                catch (StorageException ex)
+                catch (RequestFailedException ex)
                 {
                     Interlocked.Increment(ref Bak.ExceptionCount);
                     // Swallow 404 exceptions.

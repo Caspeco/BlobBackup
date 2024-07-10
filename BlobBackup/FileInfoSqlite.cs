@@ -196,7 +196,8 @@ namespace BlobBackup
                 DeleteDetectedTime = GetDateTime(reader["DeleteDetectedTime"]);
 
                 // if there is local file, than it takes precedence over database values
-                UpdateFromFileInfo(fi);
+                if (UpdateFromFileInfo(fi))
+                    UpdateDb(); // if the local file updated object then reflect that in db
             }
 
             private FileInfo(FileInfoSqlite sqlite, BlobItem blob)
@@ -209,7 +210,7 @@ namespace BlobBackup
             internal void UpdateFromAzure(BlobItem blob)
             {
                 LocalName = blob.GetLocalFileName();
-                RemPath = blob.Uri.AbsolutePath;
+                RemPath = blob.Name;
                 LastModifiedTime = blob.LastModifiedUtc.UtcDateTime;
                 Size = blob.Size;
                 MD5 = blob.MD5;
@@ -222,14 +223,21 @@ namespace BlobBackup
                 UpdateFromFileInfo(fi);
             }
 
-            internal void UpdateFromFileInfo(ILocalFileInfo fi)
+            internal bool UpdateFromFileInfo(ILocalFileInfo fi)
             {
                 if (fi is null || !fi.Exists)
-                    return;
+                    return false;
+
+                if (string.IsNullOrEmpty(fi.MD5) &&
+                    fi is LocalFileInfoDisk lfi) MD5 = lfi.GetMd5();
+                var same = fi.IsSame(this);
+
                 LastModifiedTime = fi.LastModifiedTimeUtc;
                 Size = fi.Size;
                 if (!string.IsNullOrEmpty(fi.MD5))
                     MD5 = fi.MD5;
+
+                return !same;
             }
 
             internal void UpdateDb() => _sqlLite.UpdateFileInfo(this);
