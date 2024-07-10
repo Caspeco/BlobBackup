@@ -103,7 +103,7 @@ namespace BlobBackup
             Interlocked.Add(ref DownloadedSize, size);
         }
 
-        private BlobJob GetBlobJob(BlobItem blob)
+        private BlobJob GetBlobJob((long size, BlobItem blob) sizeblob)
         {
             var itemCount = Interlocked.Increment(ref TotalItems);
             if (itemCount % 5000 == 0)
@@ -113,9 +113,11 @@ namespace BlobBackup
                 CheckPrintConsole();
             }
 
+            var blob = sizeblob.blob;
             if (blob is null)
             {
                 Interlocked.Increment(ref IgnoredItems);
+                Interlocked.Add(ref TotalSize, sizeblob.size);
                 return null;
             }
 
@@ -452,6 +454,7 @@ namespace BlobBackup
                         Console.WriteLine($"\n** Handling {FileInfo.DiffString(Blob)} for {LocalFilePath}");
                         Console.WriteLine($"\n** Handling2 {lfi.DiffString(Blob)} for {LocalFilePath}");
                         //*/
+
                         if (noDownloadNeeded)
                         {
                             // since size and hash is the same as last, we just fix local modification time and update database
@@ -473,7 +476,9 @@ namespace BlobBackup
                             try
                             {
                                 if (lfi.Size <= 0) // just remove empty files, shouldn't exist
+                                {
                                     lfi.FileInfo.Delete();
+                                }
                                 else
                                 {
                                     var dst = LocalFile.FullName + FLAG_MODIFIED + Blob.LastModifiedUtc.ToString(FLAG_DATEFORMAT) + FLAG_END;
@@ -513,6 +518,7 @@ namespace BlobBackup
                     if (lfi.Size != Blob.Size || lfi.GetMd5() != Blob.MD5)
                     {
                         Interlocked.Increment(ref Bak.FailedDownloads);
+                        Console.WriteLine($"\n** Download missmatch {lfi.DiffString(Blob)} for {LocalFile} (changed during run?)");
                         return false; // something went bad, we can try on next run if db isn't updated
                     }
 

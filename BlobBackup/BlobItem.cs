@@ -36,22 +36,15 @@ namespace BlobBackup
 
         public string GetLocalFileName() => Uri.AbsolutePath.Replace("//", "/").Replace('/', '\\').Trim('\\').Replace(":", "--COLON--");
 
-        public override string ToString()
-        {
-            return string.Join("|", Uri.AbsolutePath, Size, LastModifiedUtc, MD5);
-        }
+        public override string ToString() => string.Join("|", Uri.AbsolutePath, Size, LastModifiedUtc, MD5);
 
-        private static BlobItem GetBlobItem(IListBlobItem blobItem)
-        {
-            if (blobItem is not CloudBlockBlob blob)
-                return null;
-            return new BlobItem(blob);
-        }
-
-        public static async IAsyncEnumerable<ParallelQuery<T>> BlobEnumeratorAsync<T>(string containerName, string accountName, string accountKey, Func<BlobItem, T> getItem)
+        public static async IAsyncEnumerable<ParallelQuery<T>> BlobEnumeratorAsync<T>(string containerName, string accountName, string accountKey, Func<(long, BlobItem), T> getItem)
         {
             var account = CloudStorageAccount.Parse($"DefaultEndpointsProtocol=https;AccountName={accountName};AccountKey={accountKey};EndpointSuffix=core.windows.net");
             var client = account.CreateCloudBlobClient();
+
+            (long, BlobItem) GetBlobItem(IListBlobItem blobItem) => blobItem is CloudBlockBlob blob ? (blob.Properties.Length, new BlobItem(blob)) : (0, null);
+
             var container = client.GetContainerReference(containerName);
             var list = new List<T>();
             BlobContinuationToken continuationToken = null;
@@ -62,7 +55,6 @@ namespace BlobBackup
                 yield return response.Results.AsParallel().Select(GetBlobItem).Select(getItem);
             }
             while (continuationToken is not null);
-
         }
     }
 }

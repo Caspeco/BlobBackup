@@ -232,10 +232,7 @@ namespace BlobBackup
                     MD5 = fi.MD5;
             }
 
-            internal void UpdateDb()
-            {
-                _sqlLite.UpdateFileInfo(this);
-            }
+            internal void UpdateDb() => _sqlLite.UpdateFileInfo(this);
 
             public override string ToString() => string.Join("|", RemPath, LastModifiedTime, Size, MD5, LastDownloadedTime, DeleteDetectedTime);
         }
