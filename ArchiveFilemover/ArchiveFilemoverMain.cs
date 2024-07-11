@@ -63,7 +63,19 @@ namespace ArchiveFilemover
                 .AsParallel();
 
         private static readonly HashSet<string> HasCreatedDirectories = [];
-        private static readonly object HasCreatedDirectoriesLock = new();
+        private static readonly object _hasCreatedDirectoriesLock = new();
+
+        private static void EnsureDirExists(FileInfo file)
+        {
+            var dir = file.Directory;
+            if (HasCreatedDirectories.Contains(dir.FullName))
+                return;
+            lock (_hasCreatedDirectoriesLock)
+            {
+                dir.Create();
+                HasCreatedDirectories.Add(dir.FullName);
+            }
+        }
 
         private static long MoveFiles(CommandOptions options)
         {
@@ -88,23 +100,16 @@ namespace ArchiveFilemover
                         return;
 
                     var destName = fi.FullName.Substring(options.SourcePath.Length + 1);
-                    var destFileName = Path.Combine(options.DestinationPath, $"{runStartString}_modyear_{lastWriteUtc.Year}", destName);
-                    var destdir = Path.GetDirectoryName(destFileName);
+                    var destFile = new FileInfo(Path.Combine(options.DestinationPath, $"{runStartString}_modyear_{lastWriteUtc.Year}", destName));
+                    var destdir = destFile.Directory.FullName;
 
                     var printDest = destdir.Substring(options.DestinationPath.Length + 1);
                     Console.WriteLine($"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} {destName} => {printDest}");
                     itemsSincePrint = 0;
 
-                    if (!HasCreatedDirectories.Contains(destdir))
-                    {
-                        Directory.CreateDirectory(destdir);
-                        lock (HasCreatedDirectoriesLock)
-                        {
-                            HasCreatedDirectories.Add(destdir);
-                        }
-                    }
+                    EnsureDirExists(destFile);
 
-                    fi.MoveTo(destFileName);
+                    fi.MoveTo(destFile.FullName);
                 }
                 catch (Exception ex)
                 {
