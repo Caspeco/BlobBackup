@@ -72,9 +72,32 @@ namespace BlobBackup
 
             (long, BlobItem) GetBlobItem(Azure.Storage.Blobs.Models.BlobItem blob) => (blob.Properties.ContentLength ?? 0, new(blob, cli));
 
-            await foreach (var page in cli.GetBlobsAsync().AsPages())
+            var prefixes = new HashSet<string>();
+            await foreach (var page in cli
+                .GetBlobsByHierarchyAsync(delimiter: "/")
+                .AsPages(pageSizeHint: 20000))
             {
-                yield return page.Values.AsParallel().Select(GetBlobItem).Select(getItem);
+                foreach (var p in page.Values)
+                {
+                    if (p.Blob is null && p.Prefix is not null)
+                    {
+                        prefixes.Add(p.Prefix);
+                    }
+                }
+                var blobs = page.Values.Select(p => p.Blob).Where(b => b is not null);
+                if (blobs.Any())
+                {
+                    yield return blobs.AsParallel().Select(GetBlobItem).Select(getItem);
+                }
+            }
+
+            foreach (var pages in prefixes.AsParallel()
+                .Select(pfx => cli.GetBlobsAsync(prefix: pfx).AsPages(pageSizeHint: 20000)))
+            {
+                await foreach (var page in pages)
+                {
+                    yield return page.Values.AsParallel().Select(GetBlobItem).Select(getItem);
+                }
             }
         }
     }
