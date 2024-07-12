@@ -242,7 +242,7 @@ namespace BlobBackup
 
             internal void UpdateDb() => _sqlLite.UpdateFileInfo(this);
 
-            public override string ToString() => string.Join("|", RemPath, LastModifiedTime, Size, MD5, LastDownloadedTime, DeleteDetectedTime);
+            public override string ToString() => string.Join("|", RemPath, Size, LastModifiedTime, MD5, LastDownloadedTime, DeleteDetectedTime);
         }
 
 
