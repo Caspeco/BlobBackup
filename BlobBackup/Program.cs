@@ -5,18 +5,13 @@ namespace BlobBackup
 {
     public class Program
     {
-        public static int Main(string[] args)
-        {
-            return MainAsync(args).GetAwaiter().GetResult();
-        }
-
         internal static void PrintStats(Stopwatch sw)
         {
             Console.WriteLine();
             Console.WriteLine($"Elapsed time {sw.Elapsed}");
         }
 
-        public static async Task<int> MainAsync(string[] args)
+        public static async Task<int> Main(string[] args)
         {
             var options = new CommandOptions();
             var result = Parser.Default.ParseArguments<CommandOptions>(args)
@@ -51,7 +46,6 @@ namespace BlobBackup
 
             Console.WriteLine();
             Console.WriteLine($"Done in {sw.Elapsed}");
-            if (Debugger.IsAttached) Console.ReadKey();
             return 0;
         }
     }
