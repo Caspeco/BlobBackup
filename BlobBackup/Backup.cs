@@ -74,13 +74,11 @@ namespace BlobBackup
             }
         }
 
-        private static ParallelQuery<FileInfo> EnumerateFilesParallel(DirectoryInfo dir)
-        {
-            return dir.EnumerateDirectories()
+        private static ParallelQuery<FileInfo> EnumerateFilesParallel(DirectoryInfo dir) =>
+            dir.EnumerateDirectories()
                 .SelectMany(EnumerateFilesParallel)
                 .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly))
                 .AsParallel();
-        }
 
         private bool DoLocalFileDelete(FileSystemInfo f)
         {
@@ -106,6 +104,7 @@ namespace BlobBackup
         private BlobJob GetBlobJob((long size, BlobItem blob) sizeblob)
         {
             var itemCount = Interlocked.Increment(ref TotalItems);
+            Interlocked.Add(ref TotalSize, sizeblob.size);
             if (itemCount % 5000 == 0)
             {
                 // set progress JobChar for next console update
@@ -117,11 +116,9 @@ namespace BlobBackup
             if (blob is null)
             {
                 Interlocked.Increment(ref IgnoredItems);
-                Interlocked.Add(ref TotalSize, sizeblob.size);
                 return null;
             }
 
-            Interlocked.Add(ref TotalSize, blob.Size);
             var localFileName = blob.GetLocalFileName();
             var bJob = new BlobJob(this, blob, new(Path.Combine(_localPath, localFileName)));
             if (localFileName is null)
@@ -421,7 +418,7 @@ namespace BlobBackup
                 return true;
             }
 
-            public async Task<bool> DoJob()
+            public async ValueTask<bool> DoJob()
             {
                 try
                 {
@@ -429,7 +426,6 @@ namespace BlobBackup
                     if (NeedsJob == JobType.New)
                     {
                         AddJobChar('N');
-                        EnsureDirExists(LocalFile);
                     }
                     else if (NeedsJob == JobType.Modified)
                     {
