@@ -7,16 +7,12 @@ namespace BlobBackup
         private readonly string _localPath;
         private readonly string _containerName;
 
-        public int TotalItems = 0;
-        public long TotalSize = 0;
+        public ItemCountSize TotalItems = new();
         public int IgnoredItems = 0;
         public int UpToDateItems = 0;
-        public int NewItems = 0;
-        public long NewItemsSize = 0;
-        public int ModifiedItems = 0;
-        public long ModifiedItemsSize = 0;
-        public int DownloadedItems = 0;
-        public long DownloadedSize = 0;
+        public ItemCountSize NewItems = new();
+        public ItemCountSize ModifiedItems = new();
+        public ItemCountSize DownloadedItems = new();
         public int ExceptionCount = 0;
         public int FailedDownloads = 0;
         public int LocalItems = 0;
@@ -95,17 +91,12 @@ namespace BlobBackup
             return !ExpectedLocalFiles.Contains(localFilename);
     }
 
-        private void AddDownloaded(long size)
-        {
-            Interlocked.Increment(ref DownloadedItems);
-            Interlocked.Add(ref DownloadedSize, size);
-        }
+        private void AddDownloaded(long size) => DownloadedItems.Add(size);
 
         private BlobJob GetBlobJob((long size, BlobItem blob) sizeblob)
         {
-            var itemCount = Interlocked.Increment(ref TotalItems);
-            Interlocked.Add(ref TotalSize, sizeblob.size);
-            if (itemCount % 5000 == 0)
+            var itemCount = TotalItems.Add(sizeblob.size);
+            if (itemCount.count % 5000 == 0)
             {
                 // set progress JobChar for next console update
                 AddJobChar('.');
@@ -162,15 +153,13 @@ namespace BlobBackup
                                 else
                                     BlobJobQueue.AddDone(bJob);
 
-                                Interlocked.Increment(ref NewItems);
-                                Interlocked.Add(ref NewItemsSize, blob.Size);
+                                NewItems.Add(blob.Size);
                             }
                             else if (!file.IsSame(blob))
                             {
                                 bJob.NeedsJob = JobType.Modified;
                                 BlobJobQueue.AddDone(bJob);
-                                Interlocked.Increment(ref ModifiedItems);
-                                Interlocked.Add(ref ModifiedItemsSize, blob.Size);
+                                ModifiedItems.Add(blob.Size);
                                 didWorkAny = true;
                             }
                             else
@@ -182,7 +171,7 @@ namespace BlobBackup
                         {
                             downloadOk = false;
                             Interlocked.Increment(ref ExceptionCount);
-                            Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Name} Scanned Items: #{TotalItems}. Ex message:" + ex.Message);
+                            Console.WriteLine($"INSIDE LOOP EXCEPTION while scanning {_containerName}. Item: {blob.Name} Scanned: {TotalItems}. Ex message:{ex.Message}");
                         }
                     });
                     downloadOk ??= true;
@@ -194,7 +183,7 @@ namespace BlobBackup
             {
                 downloadOk = false;
                 Interlocked.Increment(ref ExceptionCount);
-                Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{TotalItems}: " + ex.Message);
+                Console.WriteLine($"OUTER EXCEPTION ({_containerName}) #{TotalItems}: {ex.Message}");
             }
             finally
             {
@@ -284,7 +273,7 @@ namespace BlobBackup
             if (forceFull || LastConsoleWriteLine < utcNow.AddMinutes(-0.5))
             {
                 LastConsoleWriteLine = utcNow;
-                Console.WriteLine("\n --MARK-- " + utcNow.ToString("yyyy-MM-dd HH:mm:ss.ffff") + $" - Currently {TotalItems.Format()} scanned, {TaskCount.Format()} tasks, {BlobJobQueue.QueueCount.Format()} waiting jobs");
+                Console.WriteLine($"\n --MARK-- {utcNow:yyyy-MM-dd HH:mm:ss.ffff} - Currently {TotalItems} scanned, {TaskCount.Format()} tasks, {BlobJobQueue.QueueCount.Format()} waiting jobs");
                 if (forceFull || LastConsoleWriteStats < utcNow.AddMinutes(-2))
                 {
                     LastConsoleWriteStats = utcNow;
@@ -300,13 +289,13 @@ namespace BlobBackup
 
         public void PrintStats()
         {
-            Console.WriteLine($" {TotalItems.Format()} remote items scanned, total size {TotalSize.FormatSize()} and found:");
-            Console.WriteLine($" {NewItems.Format()} new files. Total size {NewItemsSize.FormatSize()}");
-            Console.WriteLine($" {ModifiedItems.Format()} modified files. Total size {ModifiedItemsSize.FormatSize()}");
-            Console.WriteLine($" {DownloadedItems.Format()} downloaded files. Total size {DownloadedSize.FormatSize()}");
-            Console.WriteLine($" {UpToDateItems.Format()} files up to date");
-            Console.WriteLine($" {IgnoredItems.Format()} ignored items, {FailedDownloads.Format()} failed, {ExceptionCount.Format()} exceptions");
-            Console.WriteLine($" {LocalItems.Format()} local items");
+            Console.WriteLine($" {TotalItems} remote items scanned and found:");
+            Console.WriteLine($" {NewItems} new");
+            Console.WriteLine($" {ModifiedItems} modified");
+            Console.WriteLine($" {DownloadedItems} downloaded");
+            Console.WriteLine($" {UpToDateItems.Format()} up to date");
+            Console.WriteLine($" {IgnoredItems.Format()} ignored, {FailedDownloads.Format()} failed, {ExceptionCount.Format()} exceptions");
+            Console.WriteLine($" {LocalItems.Format()} local");
             Console.WriteLine($" {DeletedItems.Format()} local files deleted (or moved)");
         }
 
