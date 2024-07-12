@@ -45,10 +45,10 @@ namespace BlobBackup
         private const string FLAG_DATEFORMAT = "yyyyMMddHHmm";
         private const string FLAG_END = "]";
 
-        internal void AddTasks(params Task[] tasks)
+        internal void AddTask(Task task)
         {
             lock (_tasksListLock)
-                _tasks.AddRange(tasks);
+                _tasks.Add(task);
         }
 
         private Task[] GetTasks()
@@ -62,12 +62,16 @@ namespace BlobBackup
             var taskSet = GetTasks();
             if (taskSet.Length == 0)
                 return;
-            var finishedTask = await Task.WhenAny(taskSet);
-            lock (_tasksListLock)
+            do
             {
-                _tasks.Remove(finishedTask);
-                RunQueue<BlobJob>.CleanupTaskList(_tasks);
-            }
+                var finishedTask = await Task.WhenAny(taskSet);
+                lock (_tasksListLock)
+                {
+                    _tasks.Remove(finishedTask);
+                    taskSet = [.. _tasks];
+                }
+                await finishedTask;
+            } while (taskSet.Any(t => t.Status == TaskStatus.RanToCompletion));
         }
 
         private static ParallelQuery<FileInfo> EnumerateFilesParallel(DirectoryInfo dir) =>
@@ -125,7 +129,6 @@ namespace BlobBackup
 
         public async Task<Backup> PrepareJobAsync(string accountName, string accountKey)
         {
-            await Task.Yield();
             var localContainerPath = Path.Combine(_localPath, _containerName);
             Directory.CreateDirectory(localContainerPath);
             var localDir = new DirectoryInfo(localContainerPath);
@@ -236,7 +239,7 @@ namespace BlobBackup
                 CheckPrintConsole(true);
                 Console.WriteLine(" Delete existing local files not in azure done");
             });
-            AddTasks(delTask);
+            AddTask(delTask);
             BlobJobQueue.RunnerDone();
 
             return this;
@@ -298,26 +301,37 @@ namespace BlobBackup
             Console.WriteLine($" {DeletedItems} local files deleted (or moved)");
         }
 
-        public async Task ProcessJob(int simultaniousDownloads)
+        private async Task QueueWorker()
+        {
+            await Task.Yield(); // make sure we can queue the Task
+
+            var simultaniousDownloads = _simultaniousDownloads;
+            foreach (var item in BlobJobQueue.GetDoneEnumerable())
+            {
+                var job = item.DoJob();
+                var tCount = TaskCount;
+                if (tCount < simultaniousDownloads
+                    && BlobJobQueue.QueueCount >= tCount)
+                {
+                    AddTask(Task.Run(QueueWorker));
+                }
+
+                await job;
+            }
+        }
+
+        private int _simultaniousDownloads;
+        public async Task ProcessJobs(int simultaniousDownloads)
         {
             try
             {
-                foreach (var item in BlobJobQueue.GetDoneEnumerable())
+                _simultaniousDownloads = simultaniousDownloads;
+                var qTask = QueueWorker();
+                AddTask(qTask);
+                await qTask;
+
+                while (TaskCount != 0)
                 {
-                    if (TaskCount >= simultaniousDownloads)
-                    {
-                        CheckPrintConsole();
-                        await WaitTaskAndClean();
-                    }
-
-                    AddTasks(Task.Run(item.DoJob));
-                }
-
-                CheckPrintConsole(true);
-
-                while (TaskCount > 0)
-                {
-                    await Task.WhenAll(GetTasks());
                     await WaitTaskAndClean();
                 }
             }

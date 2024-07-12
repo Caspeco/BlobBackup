@@ -8,9 +8,6 @@ namespace BlobBackup
         private readonly AutoResetEvent _doneReset = new(false);
         private readonly Queue<T> _doneQueue = new();
 
-        private readonly object _threadsLock = new();
-        private List<Task> _threads;
-
         private int _doneCount;
         /// <summary>Total times <see cref="AddDone"/> has been called</summary>
         public int TotalDoneCount => _doneCount;
@@ -30,7 +27,7 @@ namespace BlobBackup
             lock (_doneQueueLock)
             {
                 _doneQueue.Enqueue(runI);
-                _doneCount++;
+                Interlocked.Increment(ref _doneCount);
                 _lastDoneItem = runI;
             }
             _doneReset.Set();
@@ -81,28 +78,6 @@ namespace BlobBackup
             _doneReset.Set(); // ensure that any remaining threads are let go
         }
 
-        public int StartWorkerThreads(int nrThreads, Action runnerAction)
-        {
-            int startedThreads = 0;
-            lock (_threadsLock)
-            {
-                _threads ??= new List<Task>(nrThreads);
-                while (_threads.Count < nrThreads)
-                {
-                    _threads.Add(Task.Factory.StartNew(runnerAction));
-                    startedThreads++;
-                }
-            }
-            return startedThreads;
-        }
-
-        public void WaitForThreadsToBeDone(Action<List<Task>, object> cleanupWaitTasks)
-        {
-            // Wait for all tasks to finish before declaring done
-            cleanupWaitTasks(_threads, _threadsLock);
-            RunnerDone();
-        }
-
         /// <exception cref="InvalidOperationException">If <see cref="RunnerDone" /> has been called before</exception>
         internal void RunnerDone()
         {
@@ -111,27 +86,6 @@ namespace BlobBackup
             // notify done
             _noMoreAddsToBeDone = true;
             _doneReset.Set();
-        }
-
-        public static void CleanupWaitTasks(List<Task> ts, object lockObject)
-        {
-            while (ts.Count > 0)
-            {
-                lock (lockObject)
-                {
-                    CleanupTaskList(ts);
-                    Task.WaitAll([.. ts]);
-                }
-            }
-        }
-
-        public static void CleanupTaskList(IList<Task> taskList)
-        {
-            foreach (var remTask in taskList.ToArray().Where(t => t.Status == TaskStatus.RanToCompletion))
-            {
-                remTask.GetAwaiter().GetResult();
-                taskList.Remove(remTask);
-            }
         }
 
         #region IDisposable Support

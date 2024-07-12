@@ -27,8 +27,8 @@ namespace BlobBackup
             try
             {
                 var prepTask = job.PrepareJobAsync(options.AccountName, options.AccountKey);
-                job.AddTasks(prepTask);
-                var processTask = job.ProcessJob(options.Parallel);
+                job.AddTask(prepTask);
+                var processTask = job.ProcessJobs(options.Parallel);
                 await prepTask;
 
                 PrintStats(sw);
