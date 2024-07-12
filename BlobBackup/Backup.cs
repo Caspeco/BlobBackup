@@ -8,15 +8,15 @@ namespace BlobBackup
         private readonly string _containerName;
 
         public ItemCountSize TotalItems = new();
-        public int IgnoredItems = 0;
-        public int UpToDateItems = 0;
+        public ItemCountSize IgnoredItems = new();
+        public ItemCountSize UpToDateItems = new();
         public ItemCountSize NewItems = new();
         public ItemCountSize ModifiedItems = new();
         public ItemCountSize DownloadedItems = new();
         public int ExceptionCount = 0;
         public int FailedDownloads = 0;
-        public int LocalItems = 0;
-        public int DeletedItems = 0;
+        public ItemCountSize LocalItems = new();
+        public ItemCountSize DeletedItems = new();
 
         private readonly object ExpectedLocalFilesLock = new();
         private HashSet<string> ExpectedLocalFiles = [];
@@ -76,11 +76,11 @@ namespace BlobBackup
                 .Concat(dir.EnumerateFiles("*", SearchOption.TopDirectoryOnly))
                 .AsParallel();
 
-        private bool DoLocalFileDelete(FileSystemInfo f)
+        private bool DoLocalFileDelete(FileInfo f)
         {
             if (f.Name.Contains(FLAG_MODIFIED) || f.Name.Contains(FLAG_DELETED))
                 return false;
-            if (Interlocked.Increment(ref LocalItems) % 1000 == 0)
+            if (LocalItems.Add(f.Length).count % 1000 == 0)
             {
                 CheckPrintConsole();
             }
@@ -106,7 +106,7 @@ namespace BlobBackup
             var blob = sizeblob.blob;
             if (blob is null)
             {
-                Interlocked.Increment(ref IgnoredItems);
+                IgnoredItems.Add(sizeblob.size);
                 return null;
             }
 
@@ -145,15 +145,14 @@ namespace BlobBackup
                         {
                             if (!file.Exists || bJob.ForceDownloadMissing())
                             {
+                                NewItems.Add(blob.Size);
                                 bJob.NeedsJob = JobType.New;
                                 bJob.SqlFileInfo.UpdateFromAzure(blob);
 
                                 if (bJob.HandleWellKnownBlob())
-                                    Interlocked.Increment(ref IgnoredItems);
+                                    IgnoredItems.Add(blob.Size);
                                 else
                                     BlobJobQueue.AddDone(bJob);
-
-                                NewItems.Add(blob.Size);
                             }
                             else if (!file.IsSame(blob))
                             {
@@ -164,7 +163,7 @@ namespace BlobBackup
                             }
                             else
                             {
-                                Interlocked.Increment(ref UpToDateItems);
+                                UpToDateItems.Add(blob.Size);
                             }
                         }
                         catch (Exception ex)
@@ -216,7 +215,7 @@ namespace BlobBackup
                         fi.MoveTo(newName);
                     else if (Directory.Exists(Path.GetDirectoryName(newName)))
                         File.Create(newName + ".empty").Close(); // creates dummy file to mark as deleted
-                    Interlocked.Increment(ref DeletedItems);
+                    DeletedItems.Add(fi.Exists ? 0 : fi.Length);
                 });
                 CheckPrintConsole(true);
                 Console.WriteLine(" Delete files known in local sql but not in azure done");
@@ -232,7 +231,7 @@ namespace BlobBackup
                 {
                     AddJobChar('D');
                     fi.MoveTo(fi.FullName + FLAG_DELETED + nowUtc.ToString(FLAG_DATEFORMAT) + FLAG_END);
-                    Interlocked.Increment(ref DeletedItems);
+                    DeletedItems.Add(fi.Length);
                 });
                 CheckPrintConsole(true);
                 Console.WriteLine(" Delete existing local files not in azure done");
@@ -293,10 +292,10 @@ namespace BlobBackup
             Console.WriteLine($" {NewItems} new");
             Console.WriteLine($" {ModifiedItems} modified");
             Console.WriteLine($" {DownloadedItems} downloaded");
-            Console.WriteLine($" {UpToDateItems.Format()} up to date");
-            Console.WriteLine($" {IgnoredItems.Format()} ignored, {FailedDownloads.Format()} failed, {ExceptionCount.Format()} exceptions");
-            Console.WriteLine($" {LocalItems.Format()} local");
-            Console.WriteLine($" {DeletedItems.Format()} local files deleted (or moved)");
+            Console.WriteLine($" {UpToDateItems} up to date");
+            Console.WriteLine($" {IgnoredItems} ignored, {FailedDownloads.Format()} failed, {ExceptionCount.Format()} exceptions");
+            Console.WriteLine($" {LocalItems} local");
+            Console.WriteLine($" {DeletedItems} local files deleted (or moved)");
         }
 
         public async Task ProcessJob(int simultaniousDownloads)
