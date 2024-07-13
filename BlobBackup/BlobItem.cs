@@ -16,7 +16,7 @@ namespace BlobBackup
         #endregion ILocalFileInfo
 
         public DateTimeOffset LastModifiedUtc { get; private set; }
-        internal Func<FileInfo, Task> DownloadToFileAsync;
+        internal Func<FileInfo, Task<Azure.Response>> DownloadToFileAsync;
 
         private void UpdateProps(BlobItemProperties props)
         {
@@ -30,7 +30,7 @@ namespace BlobBackup
             Blob = blob;
             Name = $"/{cli.Name}/{blob.Name}";
             UpdateProps(blob.Properties);
-            DownloadToFileAsync = async (FileInfo fi) => await cli.GetBlobClient(blob.Name).DownloadToAsync(fi.FullName);
+            DownloadToFileAsync = fi => cli.GetBlobClient(blob.Name).DownloadToAsync(fi.FullName);
         }
 
         private static readonly char[] InvalidPathChars = System.IO.Path.GetInvalidFileNameChars().Where(c => c != '\\').ToArray();
