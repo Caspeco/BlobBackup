@@ -80,5 +80,15 @@ namespace BlobBackup
                 FileInfo.Refresh();
             }
         }
+
+        public void Delete()
+        {
+            if (!Exists)
+                FileInfo.Refresh();
+            if (!Exists)
+                return;
+            FileInfo.Delete();
+            FileInfo.Refresh();
+        }
     }
 }

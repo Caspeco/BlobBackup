@@ -93,7 +93,7 @@ namespace BlobBackup
             if (localFilename.StartsWith(_localPath))
                 localFilename = localFilename.Substring(_localPath.Length + 1);
             return !ExpectedLocalFiles.Contains(localFilename);
-    }
+        }
 
         private void AddDownloaded(long size) => DownloadedItems.Add(size);
 
@@ -116,8 +116,6 @@ namespace BlobBackup
 
             var localFileName = blob.GetLocalFileName();
             var bJob = new BlobJob(this, blob, new(Path.Combine(_localPath, localFileName)));
-            if (localFileName is null)
-                throw new NullReferenceException();
             lock (ExpectedLocalFilesLock)
                 ExpectedLocalFiles.Add(localFileName);
 
@@ -226,8 +224,8 @@ namespace BlobBackup
 
                 // scan for deleted files by checking if we have a file locally that we did not find remotely
                 // load list of local files
-                // this might take a minute or 2 if many files, since we wait for first yielded item before continuing
                 // done after sql Loop, since that should "remove" them already
+                if (localDir.Exists)
                 EnumerateFilesParallel(localDir).
                     Where(DoLocalFileDelete).
                     ForAll(fi =>
@@ -422,9 +420,9 @@ namespace BlobBackup
 
             public async ValueTask<bool> DoJob()
             {
+                LocalFileInfoDisk lfi = null;
                 try
                 {
-                    LocalFileInfoDisk lfi = null;
                     if (NeedsJob == JobType.New)
                     {
                         AddJobChar('N');
@@ -461,7 +459,7 @@ namespace BlobBackup
                                 if (lfi.Size <= 0  // just remove empty files, shouldn't exist
                                     || lfi.LastModifiedTimeUtc > DateTime.UtcNow.AddHours(-24)) // recently modified files is also just replaced
                                 {
-                                    lfi.FileInfo.Delete();
+                                    lfi.Delete();
                                 }
                                 else
                                 {
@@ -472,8 +470,8 @@ namespace BlobBackup
                                     }
 
                                     File.Move(lfi.FileInfo.FullName, dst);
-                                    lfi.FileInfo.Refresh();
                                 }
+                                lfi.FileInfo.Refresh();
                             }
                             catch (IOException)
                             {
@@ -502,6 +500,11 @@ namespace BlobBackup
                     // maybe something changed from orignal data
                     if (lfi.Size != Blob.Size || lfi.GetMd5() != Blob.MD5)
                     {
+                        if (lfi.Exists && lfi.Size == 0)
+                        {
+                            lfi.Delete();
+                        }
+
                         Interlocked.Increment(ref Bak.FailedDownloads);
                         Console.WriteLine($"\n** Download missmatch {lfi.DiffString(Blob)} for {LocalFile} (changed during run?)");
                         return false; // something went bad, we can try on next run if db isn't updated
@@ -526,6 +529,17 @@ namespace BlobBackup
                     HasCreatedDirectories.Clear();
                     Interlocked.Increment(ref Bak.ExceptionCount);
                     Console.WriteLine($"\nSwallowed Ex: {LocalFile} {ex}");
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref Bak.ExceptionCount);
+                    lfi.FileInfo.Refresh();
+                    if (lfi.Exists && lfi.Size == 0)
+                    {
+                        lfi.Delete();
+                    }
+                    Console.WriteLine($"\nRethrow Ex: {LocalFile} {ex}");
+                    throw;
                 }
                 return false;
             }
