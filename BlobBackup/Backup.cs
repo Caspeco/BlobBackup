@@ -128,7 +128,6 @@ namespace BlobBackup
         public async Task<Backup> PrepareJobAsync(string accountName, string accountKey)
         {
             var localContainerPath = Path.Combine(_localPath, _containerName);
-            Directory.CreateDirectory(localContainerPath);
             var localDir = new DirectoryInfo(localContainerPath);
 
             bool? downloadOk = null;
@@ -148,7 +147,6 @@ namespace BlobBackup
                             {
                                 NewItems.Add(blob.Size);
                                 bJob.NeedsJob = JobType.New;
-                                bJob.SqlFileInfo.UpdateFromAzure(blob);
 
                                 if (bJob.HandleWellKnownBlob())
                                     IgnoredItems.Add(blob.Size);
@@ -490,7 +488,7 @@ namespace BlobBackup
 
                     EnsureDirExists(LocalFile);
                     SqlFileInfo.UpdateFromAzure(Blob);
-                    await Blob.DownloadToFileAsync(LocalFile);
+                    await Blob.DownloadToFileAsync(LocalFile).ConfigureAwait(false);
                     SqlFileInfo.LastDownloadedTime = DateTime.UtcNow;
                     AddDownloaded(Blob.Size);
                     // we always want a new file item after download

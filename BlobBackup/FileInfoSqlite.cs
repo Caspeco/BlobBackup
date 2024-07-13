@@ -236,6 +236,8 @@ namespace BlobBackup
                 Size = fi.Size;
                 if (!string.IsNullOrEmpty(fi.MD5))
                     MD5 = fi.MD5;
+                if (!Exists && fi.Exists)
+                    LastDownloadedTime = DateTime.UtcNow;
 
                 return !same;
             }
